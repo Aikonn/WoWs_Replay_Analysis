@@ -37,6 +37,10 @@ Investigate only, don't change the publish logic yet. On one leftover backup fol
 5. Whether the staging folder from extract_replay gets deleted fine, and whether leftover backups exist in `%TEMP%` or in `data/raw/`.
 Then I'll decide between a fixed rmtree and publishing without backup folders.
 
+**Copilot:** Diagnosed the failure as the backup directory's read-only attribute, not a OneDrive lock. On a real empty backup in `data/raw/`, plain `shutil.rmtree` failed at `os.rmdir` with WinError 5. `attrib` showed `A R P`; after `os.chmod(path, stat.S_IWRITE)`, retrying via Python 3.12's `onexc` handler succeeded. A disposable file created inside another real backup had no read-only attribute (`attrib` showed `A P`); its ACL granted Full Control to SYSTEM, Administrators and HALL9K\pbumb, and `unlink()` succeeded. After removing that file, plain `rmtree` still failed on the now-empty directory, while the read-only-clearing retry succeeded.
+
+The backup folder ACL includes inherited `Everyone:(I)(CI)(DENY)(DC)`, also present at the OneDrive root and inherited through the project tree; the probe file itself did not inherit that deny. The deny was not the cause of the tested empty-folder failure. A stage-style `mkdtemp` folder with an ordinary file under `data/raw/` was removed by plain `rmtree`; the focused `extract_replay` test also passed and asserts that no staging folder remains. At the end of the checks, no backups remained in `data/raw/`; three empty backup folders remained in `%TEMP%`. The existing backup folders were empty before the disposable-file probe, so there were no pre-existing files to inspect.
+
 ## Resolved
 
 ### 2026-11-14 · Progress · Incomplete replay processing verified
