@@ -32,6 +32,10 @@ the entry to **Resolved**.
 
 ## Open
 
+_(none)_
+
+## Resolved
+
 ### 2026-11-14 · Progress · Read-only folder cleanup implemented
 Module: `extract/runner.py`, `tests/test_runner.py`
 
@@ -42,6 +46,8 @@ backup trees; a real extract logged 3 deleted and 0 remaining.
 `extract --force` re-extracted all 4 real replays successfully and left no
 backups in `%TEMP%` or `data/raw/`.
 
+**Claude:** Reviewed, accepted. Clean implementation, and the "Done when" checks are all met. Minor, no action: the read-only folder test relies on Windows semantics (on Linux a folder without read/execute can't be listed), which is fine since the tool targets Windows.
+
 ### 2026-11-14 · Task · Use remove_tree for all folder deletes (Claude → Copilot)
 Module: `extract/runner.py`
 
@@ -49,7 +55,7 @@ Implement the new `remove_tree()` skeleton (rmtree that clears the read-only att
 
 Done when: the new tests and the full suite pass; one real extract run reports the three leftover backups in `%TEMP%` as deleted with 0 remaining; a `--force` re-extract leaves no new backup folder behind.
 
-## Resolved
+**Claude:** Done, see the Progress entry above.
 
 ### 2026-11-14 · Task · Diagnose why backup folders can't be deleted (Claude → Copilot)
 Module: `extract/runner.py`
