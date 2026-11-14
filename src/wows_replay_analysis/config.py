@@ -21,6 +21,12 @@ class Config:
     data_dir: Path
     gamedata_dir: Path
     snapshot_interval: float = 5.0
+    # [process] Battle types Stage 2 processes (replay header matchGroup).
+    match_groups: tuple[str, ...] = ("pvp",)
+    # [update] Where the tool updates itself from (see updates.py).
+    update_repo: str = "Aikonn/WoWs_Replay_Analysis"
+    update_branch: str = "main"
+    github_token: str | None = None   # only needed while the repo is private
 
     @property
     def raw_dir(self) -> Path:
@@ -50,6 +56,10 @@ def load_config(path: Path) -> Config:
     - Raise a clear error (mentioning config.example.toml) if the file is missing.
     - Raise a clear error if replays_dir does not exist.
     - data_dir and gamedata_dir may not exist yet; they are created when needed.
+    - [process] match_groups: optional list of strings, default ["pvp"]; store
+      lower-cased as a tuple. An empty list is an error.
+    - [update] repo, branch, github_token: all optional (defaults above); an
+      empty github_token means None.
     """
     config_path = path.expanduser().resolve()
     if not config_path.is_file():

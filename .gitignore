@@ -3,6 +3,7 @@
 
 # Local configuration (each user has their own)
 /config.toml
+/.installed_commit
 
 # Generated data and caches
 /data/

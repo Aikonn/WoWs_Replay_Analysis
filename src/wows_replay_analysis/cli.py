@@ -5,6 +5,9 @@ Commands (see README "Usage"):
     process  Stage 2: build match summaries and fill the SQLite database.
     report   Stage 3: generate an HTML trend report.
     run      extract + process (the normal "after playing" command).
+    check    Show whether the tool, parsers or gamedata need an update.
+    update   Update the parsers and the tool (see updates.py).
+    gui      Open the desktop window (see gui.py).
 
 Uses argparse from the standard library (no extra dependency).
 """
@@ -34,6 +37,9 @@ def build_parser() -> argparse.ArgumentParser:
         process  [--force]  Rebuild summaries/database rows even if up to date.
         report   [--ship NAME] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--output PATH]
         run      [--force]
+        check
+        update
+        gui
     """
     parser = argparse.ArgumentParser(prog="wows-analysis")
     parser.add_argument(
@@ -57,6 +63,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     run = commands.add_parser("run", help="Extract and process replays.")
     run.add_argument("--force", action="store_true", help="Rebuild all outputs.")
+
+    commands.add_parser("check", help="Check for tool, parser and gamedata updates.")
+    commands.add_parser("update", help="Update the replay parsers and the tool.")
+    commands.add_parser("gui", help="Open the desktop window.")
     return parser
 
 
@@ -131,6 +141,18 @@ def main(argv: list[str] | None = None) -> int:
 
     Returns the process exit code (0 = success). Errors on individual replays
     must be logged and counted, not abort the whole run.
+
+    Dispatch (TODO, only extract is wired so far):
+        extract  extract_all
+        process  database.rebuild_database + match_summary.build_all_summaries
+                 (print rows/summaries written, and how many were skipped by
+                 the match filter)
+        run      extract, then process
+        report   report.html_report.generate_report (still a skeleton)
+        check    updates.check_all, one line per component
+        update   updates.update_all
+        gui      gui.main(args.config)
+    Move the dispatch into small functions (one per command) to keep main short.
     """
     parser = build_parser()
     args = parser.parse_args(argv)

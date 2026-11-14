@@ -112,6 +112,10 @@ def rebuild_database(config: Config, force: bool = False) -> int:
     """Add rows for all raw extracts that are missing or outdated in the database.
 
     Return the number of rows written.
+
+    Skip matches excluded by selection.is_included(raw, config.match_groups)
+    and delete their existing rows, so the database only holds the selected
+    battle types (it is derived data and can always be rebuilt).
     """
     connection = connect(config.database_path)
     written = 0

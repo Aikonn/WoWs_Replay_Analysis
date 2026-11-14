@@ -51,6 +51,22 @@ Source mapping decisions (2026-11-14, after the first real run):
   the battle ended there.
 - Keep the whole summary under about 50 KB; the first real ones were 48 KB,
   so new fields must not add much. Trim chat or samples before key events.
+
+Minimap and map grid (2026-11-14, see process/minimap.py):
+- build_all_summaries also renders data/matches/<match_id>.png with
+  minimap.render_minimap() and sets match.minimap = "<match_id>.png" (null if
+  the map files are missing; log a warning, never fail the summary).
+- Every position in the summary (timeline samples, nearest enemies, kill and
+  death positions) gets a `grid` square like "E5" next to it, so the AI can
+  connect the JSON to the picture. Add match.grid_note: "Grid as on the
+  in-game minimap: rows A-J top to bottom, columns 1-10 left to right."
+  To stay under 50 KB, drop raw x/z coordinates where the grid square is
+  enough (keep them only in the timeline samples for my own ship).
+
+Match filter (2026-11-14, see process/selection.py): only matches whose
+matchGroup is in config.match_groups get a summary. Delete existing summary
+files (JSON and PNG) of excluded matches, so data/matches/ never shows a
+filtered-out match.
 """
 
 from __future__ import annotations
@@ -421,6 +437,14 @@ def build_all_summaries(config: Config, force: bool = False) -> int:
 
     Store processor_version inside each summary to detect outdated files.
     Return the number of summaries written.
+
+    Skip matches excluded by selection.is_included(raw, config.match_groups)
+    and remove their old summary files. Render the minimap PNG for each
+    written summary (needs config.gamedata_dir; the gamedata clone is already
+    on the right tag after extraction, but check the map folder exists).
+    Loading only meta.json is enough to apply the filter: use
+    load_raw_match(match_dir, with_timeline=False) first, and load the
+    timeline only for included matches.
     """
     written = 0
     config.matches_dir.mkdir(parents=True, exist_ok=True)

@@ -6,6 +6,19 @@ A local Python tool that extracts information from World of Warships replay file
 
 The tool produces structured, readable data about your matches that you can hand to an AI assistant to start a discussion, for example: "Here is the data from my latest game. What do you think?"
 
+## Status (2026-11-14)
+
+- **Stage 1 (raw extraction): done.** Both parsers, skip/force, incomplete
+  replays, OneDrive-safe cleanup. 4 real replays extracted.
+- **Stage 2 (summaries + SQLite): done in code**, verified on 4 replays
+  (summaries 47–49 KB). Not yet reachable from the CLI: `process` and `run`
+  still print "not implemented" (wiring is the next Copilot task).
+- **Next:** first real test, pasting one condensed JSON into an AI chat and
+  checking the discussion against a match the owner remembers; then the
+  match filter, the minimap picture, updates and the GUI (see
+  `docs/COPILOT_NOTES.md` for the task order).
+- **Stage 3 (HTML trend reports):** skeleton only.
+
 ## Use cases
 
 ### 1. Single-match analysis
@@ -78,6 +91,27 @@ Evaluated on 2026-11-14 with two real replays from game version 15.10.0 (build 1
 - A **configuration file** sets the replay folder. The game saves replays in its installation folder by default.
 - Replays that were already processed are **skipped**. They are reprocessed only when the extraction format version changes.
 
+## Match filter
+
+Only **random battles** (`matchGroup` "pvp") are processed for now. Brawls,
+events, co-op, ranked and other modes have special rules and would distort the
+statistics. Stage 1 still extracts every replay, so the filter can be changed
+later (`[process] match_groups` in `config.toml`) and `process` rebuilds the
+summaries and database to match.
+
+## Minimap picture
+
+Coordinates alone don't tell an AI where the islands are. Each match summary
+therefore comes with `data/matches/<match_id>.png`: the map (water + islands
+from the gamedata clone's `data/spaces/<map>/`), the grid, my track with time
+labels, and the known tracks of allies and enemies with death markers. Every
+position in the JSON also carries its grid square (`"E5"`, rows A–J top to
+bottom, columns 1–10 left to right, as on the in-game minimap), so the AI can
+read the text and the picture together. Give the AI both files.
+
+Chosen over computing "behind an island" flags from map geometry: much
+simpler, and a vision-capable AI can judge cover itself.
+
 ## Single-match summary sources
 
 - **My numbers** come from the post-battle report (exact).
@@ -104,7 +138,44 @@ result and probably no post-battle screen.
   battle result and an empty post-battle screen, and the recording continues
   while spectating until the player leaves (death at 452 s, recording to 591 s).
 
+## Updates
+
+`python -m wows_replay_analysis check` (or **Check for updates** in the GUI)
+reports on three components; `update` (or **Update**) updates them:
+
+| Component | Goes out of date when | How it's updated |
+|---|---|---|
+| Gamedata (wows-render-gamedata) | every game patch | **Automatic** during extraction (checks out tag `v<build>`). `check` only warns when upstream has no tag for the newest replay yet; such replays fail until it does. |
+| Parsers (replays_unpack, wows-replay-parser) | game patches that change the replay format | `update` reinstalls both from GitHub with pip. `check` compares the installed commit (pip's `direct_url.json`) with upstream. |
+| The tool itself | we push changes | `update` downloads the branch as a zip from the GitHub API and replaces the code files; `config.toml`, `data/`, `cache/` and `.venv/` are never touched. No git and no GitHub releases needed. The installed commit is kept in `.installed_commit`. A git clone (with `.git`) is never overwritten; update it with `git pull`. |
+
+While the repo is private, the tool update needs a read-only GitHub token in
+`[update] github_token`; a public repo needs none.
+
+## GUI
+
+`python -m wows_replay_analysis gui`, or double-click `start_gui.bat`. A
+small Tkinter window (no extra install):
+
+- buttons: **Process new replays**, **Check for updates**, **Update**,
+  **Open data folder**;
+- a list of the 50 most recent processed matches (date, ship, map, result,
+  damage), each with **Open** (the summary) and **Show in Explorer**;
+- a log pane with the tool's output. Long jobs run in the background, so the
+  window stays responsive.
+
+Meant to make the tool easy to use for a non-developer (the owner's brother).
+
 ## Setup
+
+**Without git knowledge (e.g. for the brother):** install Python 3.11+ and
+Git for Windows (the gamedata download still uses git in the background, it
+is never used by hand), download the repo as a zip, unzip it, run
+`install.bat` (creates `.venv`, installs the tool, copies the config
+template), set `replays_dir` in `config.toml`, then use `start_gui.bat`.
+Later updates come through the **Update** button.
+
+**Developer setup:**
 
 1. Install Python 3.11 or newer, and git.
 2. Clone this repo and create a virtual environment inside it:
@@ -133,9 +204,13 @@ python -m wows_replay_analysis run                 # extract new replays + proce
 python -m wows_replay_analysis extract [--force]   # Stage 1 only
 python -m wows_replay_analysis process [--force]   # Stage 2 only
 python -m wows_replay_analysis report --ship Schlieffen --since 2026-11-07
+python -m wows_replay_analysis check               # are updates available?
+python -m wows_replay_analysis update              # update parsers + tool
+python -m wows_replay_analysis gui                 # desktop window
 ```
 
-- Single-match discussion: take `data/matches/<match_id>.json` into the chat.
+- Single-match discussion: take `data/matches/<match_id>.json` and
+  `<match_id>.png` into the chat.
 - Trend discussion: take the HTML file from `data/reports/` into the chat, or
   just open it in a browser.
 
@@ -146,8 +221,10 @@ python -m wows_replay_analysis report --ship Schlieffen --since 2026-11-07
 config.example.toml               Config template (copy to config.toml)
 pyproject.toml                    Package and dependencies
 src/wows_replay_analysis/
-    cli.py                        Commands: extract, process, report, run
+    cli.py                        Commands: extract, process, report, run, check, update, gui
     config.py                     Loads config.toml
+    updates.py                    Update checks and updates (tool, parsers, gamedata)
+    gui.py                        Tkinter window
     extract/                      Stage 1
         runner.py                 Finds replays, skips done ones, runs both parsers
         report_parser.py          replays_unpack wrapper (post-battle report)
@@ -155,17 +232,20 @@ src/wows_replay_analysis/
         gamedata.py               Keeps the gamedata clone on the right tag
     process/                      Stage 2
         raw_loader.py             Reads one raw extract
+        selection.py              Match filter (random battles only by default)
         match_summary.py          Condensed single-match JSON
+        minimap.py                Minimap picture per match
         stats.py                  One database row per match
         database.py               SQLite schema and writes
     report/                       Stage 3
         html_report.py            HTML trend report
-docs/COPILOT_NOTES.md             Messages from Copilot to Claude
+docs/COPILOT_NOTES.md             Messages between Copilot and Claude
+install.bat, start_gui.bat        Setup and launcher for non-developers
 tests/                            pytest tests
 ```
 
-Local-only folders (ignored by git): `config.toml`, `data/`, `cache/`,
-`test_data/`, `_tools/`.
+Local-only files and folders (ignored by git): `config.toml`,
+`.installed_commit`, `data/`, `cache/`, `test_data/`, `_tools/`.
 
 ## Data layout
 
@@ -176,6 +256,7 @@ data/
         report.json               Post-battle report (replays_unpack)
         timeline.json.gz          Event timeline (wows-replay-parser), compressed
     matches/<match_id>.json       Stage 2, condensed single-match summary
+    matches/<match_id>.png        Stage 2, minimap picture for the summary
     stats.sqlite                  Stage 2, one row per match
     reports/*.html                Stage 3, trend reports
 cache/wows-gamedata/              Gamedata clone used by the timeline parser
@@ -198,6 +279,7 @@ The tool should be easy to share. Each user runs their own copy on their own com
 - JSON for raw exports (gzip-compressed for the event timeline)
 - Replay parsers: replays_unpack and wows-replay-parser, both installed from GitHub
 - SQLite for processed statistics
+- Pillow for the minimap pictures, Tkinter for the GUI
 
 Existing community tools (for example, replay parsers) should be used wherever possible instead of building everything from scratch.
 

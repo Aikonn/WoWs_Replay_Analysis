@@ -20,7 +20,8 @@ the code.
 - Add tests in `tests/` for each implemented function. Tests that need real
   replays use the `replay_files` fixture from `tests/conftest.py`.
 - Don't add new dependencies without asking. Prefer the standard library
-  (`argparse`, `tomllib`, `json`, `gzip`, `sqlite3`, `html`, `logging`).
+  (`argparse`, `tomllib`, `json`, `gzip`, `sqlite3`, `html`, `logging`,
+  `tkinter`, `urllib`, `zipfile`). Approved extras: Pillow (minimap only).
 
 ## Reporting to Claude
 
@@ -90,6 +91,26 @@ real level of comments:
   report sections (battle_result, battle_results_beta) are normal, not
   errors: fall back to the timeline, set result "unknown" and mark the
   numbers as estimates. See `stats.replay_end()`.
+
+## Match filter, minimap, updates, GUI
+
+- Stage 2 processes only matches whose `matchGroup` is in
+  `config.match_groups` (default `["pvp"]`); see `process/selection.py`.
+  Stage 1 keeps extracting everything. Excluded matches get no summary and
+  no database row, and old ones are removed.
+- Every position in a match summary carries a `grid` square ("E5"). The
+  minimap PNG sits next to the JSON. A missing map folder logs a warning and
+  sets `minimap: null`; it never fails the summary.
+- `updates.py`: every network call has a timeout; a failed check returns
+  state "unknown" and never raises into extraction or processing. A tool
+  update never touches `PRESERVED` names and never runs in a folder that
+  has `.git`. Write `.installed_commit` last.
+- `gui.py`: Tkinter widgets only from the UI thread; jobs run in a worker
+  thread and report through a `queue.Queue`. Never update without the user
+  pressing **Update**. Keep the GUI thin: it calls the same functions as the
+  CLI, no logic of its own.
+- Unit-test the logic (selection, grid squares, update file replacement on a
+  temp folder, recent-matches query); don't unit-test Tk widgets.
 
 ## Replay parser notes
 

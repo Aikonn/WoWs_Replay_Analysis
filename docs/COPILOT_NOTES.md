@@ -32,7 +32,79 @@ the entry to **Resolved**.
 
 ## Open
 
-_(none)_
+Tasks from the 2026-11-14 design chat. Please do them in this order; each
+one is small enough for one session.
+
+### 2026-11-14 · Task · 1. Wire `process` and `run` into the CLI (Claude → Copilot)
+Module: `cli.py`
+
+`process` and `run` still print "not implemented", so the owner can't build
+summaries from the command line. Implement the dispatch described in the
+`main()` docstring (one small function per command). `report` may keep
+printing "not implemented" until Stage 3. `check`, `update` and `gui` come
+with tasks 3 and 4.
+
+Done when: `run` on the real replays extracts new ones and prints rows and
+summaries written; a second `run` writes 0; tests for the dispatch pass.
+
+### 2026-11-14 · Task · 2. Random-battles-only match filter (Claude → Copilot)
+Module: `config.py`, `process/selection.py`, `process/database.py`, `process/match_summary.py`
+
+Implement `selection.py`, the new `[process] match_groups` setting in
+`load_config` (see its docstring and `config.example.toml`), and the filter
+in `rebuild_database` and `build_all_summaries`: excluded matches get no row
+and no summary, and existing ones are removed. Also report here which
+`matchGroup` values the real replays have.
+
+Done when: tests cover included / excluded / missing matchGroup and the
+config parsing; on the real data all random battles are processed and
+anything else is removed; the matchGroup values seen are listed here.
+
+### 2026-11-14 · Design · 3. Minimap picture and grid squares (Claude → Copilot)
+Module: `process/minimap.py`, `process/match_summary.py`, `pyproject.toml`
+
+Add the minimap PNG and `grid` squares described in `minimap.py` and the
+`match_summary.py` docstring. Pillow is now a dependency
+(`pip install -e .`). Verified: the gamedata clone has
+`data/spaces/<map>/minimap.png`, `minimap_water.png` and `space.settings`
+(58 maps with images at HEAD). The world-to-image formula is **not**
+verified yet: derive it from `space.settings` bounds, check it as described
+in the docstring, and write the final formula into the docstring and here.
+Bump `PROCESSOR_VERSION` to 3.
+
+Done when: grid and transform tests pass (including a corner and the
+centre); PNGs exist for all real matches; you describe one picture here
+(do the tracks stay on water, spawns near the edges, does it match
+wows-toolkit); summaries stay under ~50 KB (give the sizes).
+
+### 2026-11-14 · Design · 4. Update check and self-update (Claude → Copilot)
+Module: `updates.py`, `cli.py`, `config.py`
+
+Implement `updates.py` as its docstrings describe, plus the `check` and
+`update` commands and the `[update]` config section. The tool update must
+work without git and without GitHub releases. The repo is private for now,
+so use the optional `github_token`.
+
+Done when: unit tests cover the file replacement on a temp folder (code
+replaced, PRESERVED untouched, removed upstream files deleted, `.git`
+refusal); `check` on the owner's PC prints one line per component; update
+tested once on a zip copy of the app folder (not the git clone) and
+`.installed_commit` matches the latest commit.
+
+### 2026-11-14 · Design · 5. GUI and launchers (Claude → Copilot)
+Module: `gui.py`, `cli.py`, `install.bat`, `start_gui.bat`
+
+Implement the Tkinter window in `gui.py` and the `gui` command. Add two
+batch files in the repo root: `install.bat` (create `.venv`, `pip install
+-e .`, copy `config.example.toml` to `config.toml` if missing, then open it
+in Notepad) and `start_gui.bat` (start the GUI with `.venv\Scripts\pythonw`
+so no console window stays open). Both check that Python 3.11+ and git are
+installed and say clearly what is missing.
+
+Done when: tests for `recent_matches` pass; the owner can start the window
+by double-clicking `start_gui.bat`, process replays, see the list fill, open
+a summary and show it in Explorer, and the window stays responsive during a
+run.
 
 ## Resolved
 

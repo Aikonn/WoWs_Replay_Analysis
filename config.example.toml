@@ -15,3 +15,16 @@ gamedata_dir = "cache/wows-gamedata"
 [extract]
 # Seconds between ship state snapshots in the event timeline.
 snapshot_interval = 5.0
+
+[process]
+# Battle types to process (replay header matchGroup). Stage 1 still extracts
+# every replay; only these get summaries and statistics.
+# Examples: "pvp" (random), "ranked", "clan", "pve" (co-op), "event", "brawl".
+match_groups = ["pvp"]
+
+[update]
+# Where "Update" downloads the tool from (no git needed).
+repo = "Aikonn/WoWs_Replay_Analysis"
+branch = "main"
+# Read-only GitHub token, only needed while the repo is private.
+github_token = ""
