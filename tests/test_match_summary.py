@@ -400,13 +400,41 @@ def test_incomplete_teams_get_ship_details_from_gamedata(tmp_path: Path) -> None
         encoding="utf-8",
     )
 
-    summary = build_match_summary(make_raw(timeline=timeline_data()), data_dir)
+    timeline = timeline_data()
+    timeline["events"][2]["work_time_left"] = 1.0499999523162842
+    partial_report = {
+        "open": {"playerName": "Captain", "playerVehicle": "PRSS110-K-type"},
+        "hidden": {
+            "player_id": 100,
+            "players": {
+                "1": {
+                    "id": 1,
+                    "avatarId": 100,
+                    "shipId": 200,
+                    "name": "Captain",
+                    "teamId": 0,
+                    "isAlive": False,
+                }
+            },
+        },
+    }
+    summary = build_match_summary(
+        make_raw(report=partial_report, timeline=timeline), data_dir
+    )
 
+    assert summary["me"]["ship"] == {
+        "name": "K type",
+        "ship_id": "PRSS110_K_type",
+        "class": "Battleship",
+        "tier": 10,
+    }
     assert summary["teams"]["allies"][0]["ship"] == "K type"
     assert summary["teams"]["allies"][0]["ship_id"] == "PRSS110_K_type"
     assert summary["teams"]["allies"][0]["class"] == "Battleship"
     assert summary["teams"]["allies"][0]["tier"] == 10
     assert summary["teams"]["enemies"][0]["ship"] == "U-4501"
+    consumable = next(event for event in summary["events"] if event["type"] == "consumable")
+    assert consumable["duration_s"] == 1.0
 
 
 @pytest.mark.parametrize(

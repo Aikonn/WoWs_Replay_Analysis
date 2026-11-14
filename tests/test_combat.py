@@ -5,6 +5,7 @@ from wows_replay_analysis.process.combat import (
     battle_time,
     check_damage_consistency,
     damage_dealt_by_ship,
+    damage_received_events,
     damage_windows,
     deduplicate_deaths,
     healing_received,
@@ -173,6 +174,80 @@ def test_healing_received_groups_ticks_and_prefers_regenerated_health() -> None:
             {"start_s": 23.0, "end_s": 23.0, "amount": 5.0},
         ],
     }
+
+
+def test_damage_received_events_merge_ticks_and_include_salvo_and_report_kill() -> None:
+    timeline = {
+        "players": [
+            {"entity_id": 1, "max_health": 100},
+            {"entity_id": 2, "max_health": 100},
+        ],
+        "events": [
+            {"event_type": "PropertyUpdateEvent", "entity_type": "BattleLogic", "property_name": "timeLeft", "value": 0, "timestamp": 9},
+            {"event_type": "PropertyUpdateEvent", "entity_type": "BattleLogic", "property_name": "timeLeft", "value": 1200, "timestamp": 10},
+            {"event_type": "PropertyUpdateEvent", "entity_id": 1, "property_name": "health", "value": 100, "timestamp": 0},
+            {"event_type": "PropertyUpdateEvent", "entity_id": 1, "property_name": "burningFlags", "value": 1, "timestamp": 19},
+            {"event_type": "DamageEvent", "attacker_id": 2, "target_id": 1, "damage": 10, "timestamp": 20},
+            {"event_type": "DamageEvent", "attacker_id": 2, "target_id": 1, "damage": 10.02, "timestamp": 21.15},
+            {"event_type": "DamageReceivedStatEvent", "entity_id": 1, "damage_param": "MAIN_HE", "stat_type": "AGRO", "timestamp": 30},
+            {"event_type": "GunFireEvent", "entity_id": 2, "timestamp": 29.7},
+            {"event_type": "ShotCreatedEvent", "owner_id": 2, "shot_id": 4, "params_id": 700, "timestamp": 29.8},
+            {"event_type": "ShotDestroyedEvent", "owner_id": 2, "shot_id": 4, "timestamp": 30},
+            {"event_type": "DamageEvent", "attacker_id": 2, "target_id": 1, "damage": 50, "timestamp": 30},
+            {"event_type": "PropertyUpdateEvent", "entity_id": 1, "property_name": "health", "value": 0, "timestamp": 39.5},
+            {"event_type": "DeathEvent", "entity_id": 1, "victim_id": 1, "killer_id": 2, "timestamp": 40},
+        ],
+    }
+
+    received = damage_received_events(
+        timeline,
+        1,
+        {
+            2: {
+                "name": "Enemy",
+                "ship_id": "PRSS110_K_type",
+            }
+        },
+        {"name": "ADBOMB"},
+        {700: "HE"},
+    )
+
+    assert received == [
+        {
+            "start_s": 10.0,
+            "end_s": 11.1,
+            "attacker": {"player": "Enemy", "ship": "K type"},
+            "weapon": "fire",
+            "hits": 2,
+            "damage": 20.0,
+        },
+        {
+            "start_s": 20.0,
+            "attacker": {"player": "Enemy", "ship": "K type"},
+            "weapon": "main_he",
+            "hits": 1,
+            "damage": 50.0,
+        },
+        {
+            "start_s": 30.0,
+            "attacker": {"player": "Enemy", "ship": "K type"},
+            "weapon": "depth_charge_airstrike",
+            "hits": 1,
+            "damage": 100.0,
+        },
+    ]
+
+
+def test_damage_received_events_leave_unmatched_weapon_unknown() -> None:
+    timeline = {
+        "events": [
+            {"event_type": "DamageEvent", "attacker_id": 2, "target_id": 1, "damage": 100, "timestamp": 5},
+        ]
+    }
+
+    received = damage_received_events(timeline, 1, {})
+
+    assert received[0]["weapon"] == "unknown"
 
 
 def test_damage_windows_include_death_and_stop_at_its_time() -> None:

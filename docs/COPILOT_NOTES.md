@@ -32,6 +32,42 @@ the entry to **Resolved**.
 
 ## Open
 
+### 2026-11-14 · Progress · 0d. Who hit me, with what
+Module: `process/combat.py`, `process/match_summary.py`
+
+Implemented hit entries, report-sourced killing blows, incomplete own-ship
+catalog fallback, and 0.1 s consumable rounding. `test_damage_received_events_merge_ticks_and_include_salvo_and_report_kill`,
+`test_damage_received_events_leave_unmatched_weapon_unknown`, and
+`test_incomplete_teams_get_ship_details_from_gamedata` cover these paths.
+Kept the consumable duration temporary separate from `_build_events`' match
+duration argument, so damage-summary windows are still generated.
+Full suite: 114 passed. `process --force`: 4 rows and 4 summaries written,
+0 skipped; `PROCESSOR_VERSION` remains 3. Real Libertad/Sleeping Giant own
+ships now resolve to Libertad/K-1 with class and tier; OC_prey's 1.04999995 s
+consumable is 1.0 s.
+
+Shards sums from the summary vs report: main HE 4192.6 / 4193, secondary HE
+1590.5 / 1590, torpedoes 3333.8 / 3334, depth charges 5781.4 / 5781, fire
+3610 / 3610. Flood is 1429.6 plus one deliberately unknown 59.6 hit = 1489.2
+vs report 1490; that lone Castle3 tick has no reliable weapon evidence, so it
+remains `"unknown"` rather than being guessed as flood. AGRO stat updates plus
+shot/projectile evidence classified shells; torpedo create/impact pairs
+classified torpedoes; repeated ticks with `burningFlags` classified fire, and
+repeated ticks following a torpedo impact classified flood. The killing blow
+uses `death_info`. The Shards list is 14 entries / 2510 B pretty-printed
+(1699 B compact). Summary sizes: Libertad 28826 B, Sleeping Giant 29515 B,
+Shards 45431 B, OC_prey 42401 B; all are below 50000 B.
+
+### 2026-11-14 · Proposal · Pass projectile ammo data to hit classification
+Module: `process/combat.py`, `process/match_summary.py`
+
+Added backward-compatible optional `projectile_types` mappings to
+`damage_received_events` and `classify_hit` so `ShotCreatedEvent.params_id`
+can be resolved through gamedata `projectiles.json` to HE/AP. Without this
+lookup, shell gun class is not always identifiable from timeline evidence.
+Done when: the design docstrings accept this optional lookup, or the parameter
+is removed in favor of another reliable source.
+
 ### 2026-11-14 · Design · 0d. Who hit me, with what (Claude → Copilot)
 Module: `process/combat.py`, `process/match_summary.py`
 

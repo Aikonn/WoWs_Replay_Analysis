@@ -139,6 +139,7 @@ from wows_replay_analysis.process.combat import (
     battle_time,
     check_damage_consistency,
     damage_dealt_by_ship,
+    damage_received_events,
     damage_windows,
     deduplicate_deaths,
     healing_received,
@@ -179,10 +180,58 @@ def build_match_summary(raw: RawMatch, gamedata_dir: Path | None = None) -> dict
         name: player_numbers(row) for name, row in (public_rows or {}).items()
     }
     ship_catalog = _load_ship_catalog(gamedata_dir) if gamedata_dir is not None else None
+    projectile_types = (
+        _load_projectile_types(gamedata_dir) if gamedata_dir is not None else None
+    )
 
     players_by_id, players_by_account = _player_indexes(raw, hidden)
     own_ship_id, own_name = _own_player(raw, replay_info, players_by_id)
     own_player = players_by_id.get(own_ship_id) if own_ship_id is not None else None
+    own_timeline_player = next(
+        (
+            player for player in timeline.get("players", [])
+            if isinstance(player, dict)
+            and _integer_id(player.get("entity_id")) == own_ship_id
+        ),
+        {},
+    ) if isinstance(timeline.get("players"), list) else {}
+    own_params_id = _integer_id(
+        own_timeline_player.get("ship_id", own_timeline_player.get("ship_params_id"))
+    )
+    own_catalog_ship = (
+        ship_catalog[0].get(str(own_params_id), {})
+        if ship_catalog is not None and own_params_id is not None
+        else {}
+    )
+    own_internal_ship_name = (
+        own_catalog_ship.get("name")
+        if isinstance(own_catalog_ship.get("name"), str)
+        else None
+    )
+    own_catalog_ship_name = (
+        ship_catalog[1].get(str(own_params_id))
+        if ship_catalog is not None and own_params_id is not None
+        else None
+    )
+    own_ship_name_source = (
+        stats.get("ship_name")
+        or (own_player or {}).get("ship_id")
+        or (own_player or {}).get("ship")
+    )
+    if stats.get("stats_source") == "timeline" and own_internal_ship_name is not None:
+        own_ship_name_source = own_internal_ship_name
+        own_ship_display_name = own_catalog_ship_name or readable_ship_name(
+            own_internal_ship_name
+        )
+    else:
+        own_ship_display_name = (
+            readable_ship_name(own_ship_name_source)
+            if isinstance(own_ship_name_source, str)
+            else own_catalog_ship_name or readable_ship_name(own_internal_ship_name)
+        )
+    combat_players_by_id = _damage_event_players(
+        players_by_id, timeline, ship_catalog
+    )
     own_team = _own_team_id(hidden, own_player)
     damage_by_ship = damage_dealt_by_ship(timeline)
     own_track = health_track(timeline, own_ship_id) if own_ship_id is not None else []
@@ -290,6 +339,12 @@ def build_match_summary(raw: RawMatch, gamedata_dir: Path | None = None) -> dict
         survived = bool(survived)
     if survived is None and own_state is not None:
         survived = own_state.get("is_alive")
+    own_death_infos = hidden.get("death_info")
+    own_death_info = (
+        own_death_infos.get(str(own_ship_id))
+        if isinstance(own_death_infos, dict) and own_ship_id is not None
+        else None
+    )
     summary = {
         "processor_version": PROCESSOR_VERSION,
         "match": {
@@ -326,21 +381,24 @@ def build_match_summary(raw: RawMatch, gamedata_dir: Path | None = None) -> dict
         "me": {
             "player": stats.get("player_name") or own_name,
             "ship": {
-                "name": readable_ship_name(
-                    stats.get("ship_name")
-                    or (own_player or {}).get("ship_id")
-                    or (own_player or {}).get("ship")
-                ),
+                "name": own_ship_display_name,
                 "ship_id": (
-                    stats.get("ship_name")
-                    or (own_player or {}).get("ship_id")
-                    or (own_player or {}).get("ship")
+                    own_ship_name_source
+                    or own_internal_ship_name
                 ),
-                "class": stats.get("ship_class") or (own_player or {}).get("class"),
+                "class": (
+                    stats.get("ship_class")
+                    or (own_player or {}).get("class")
+                    or own_catalog_ship.get("species")
+                ),
                 "tier": (
                     stats.get("ship_tier")
                     if stats.get("ship_tier") is not None
-                    else (own_player or {}).get("tier")
+                    else (
+                        (own_player or {}).get("tier")
+                        if (own_player or {}).get("tier") is not None
+                        else own_catalog_ship.get("level")
+                    )
                 ),
             },
             "survived": survived,
@@ -370,6 +428,17 @@ def build_match_summary(raw: RawMatch, gamedata_dir: Path | None = None) -> dict
             ),
             "frags": stats.get("frags", 0),
             "healing": healing,
+            "damage_received_events": (
+                damage_received_events(
+                    timeline,
+                    own_ship_id,
+                    combat_players_by_id,
+                    own_death_info,
+                    projectile_types,
+                )
+                if own_ship_id is not None
+                else []
+            ),
             "ribbons": ribbon_counts,
             "base_xp": stats.get("base_xp"),
             "stats_source": stats.get("stats_source"),
@@ -996,7 +1065,11 @@ def _build_events(
                 "type": "consumable",
                 "time_s": battle_timestamp,
                 "consumable": CONSUMABLE_TYPE_ID_MAP.get(consumable_type),
-                "duration_s": event.get("work_time_left"),
+                "duration_s": (
+                    round(duration_value, 1)
+                    if (duration_value := _numeric(event.get("work_time_left"))) is not None
+                    else None
+                ),
             })
         elif event_type == "CapturePointUpdateEvent":
             summaries.append({
@@ -1077,6 +1150,81 @@ def _load_ship_catalog(
             if isinstance(value, str)
         },
     )
+
+
+def _load_projectile_types(gamedata_dir: Path) -> dict[int, str] | None:
+    """Load GAMEPARAMS_ID-to-ammo-type mappings for hit classification."""
+    projectiles_path = gamedata_dir / "data" / "projectiles.json"
+    try:
+        with projectiles_path.open("r", encoding="utf-8") as file:
+            projectiles = json.load(file)
+    except FileNotFoundError:
+        logger.info("Gamedata projectile index is missing under %s", gamedata_dir)
+        return None
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        logger.exception("Could not read the projectile index under %s", gamedata_dir)
+        return None
+    if not isinstance(projectiles, dict):
+        logger.warning("Invalid projectile index under %s", gamedata_dir)
+        return None
+    return {
+        int(params_id): projectile["a"]
+        for params_id, projectile in projectiles.items()
+        if params_id.isdigit()
+        and isinstance(projectile, dict)
+        and isinstance(projectile.get("a"), str)
+    }
+
+
+def _damage_event_players(
+    players_by_id: dict[int, dict],
+    timeline: dict,
+    ship_catalog: tuple[dict[str, dict], dict[str, str]] | None,
+) -> dict[int, dict]:
+    """Add readable ship references for attackers, including incomplete reports."""
+    timeline_players = timeline.get("players")
+    if not isinstance(timeline_players, list):
+        timeline_players = []
+    timeline_by_id = {
+        entity_id: player
+        for player in timeline_players
+        if isinstance(player, dict)
+        and (entity_id := _integer_id(player.get("entity_id"))) is not None
+    }
+    result: dict[int, dict] = {}
+    for entity_id in set(players_by_id) | set(timeline_by_id):
+        player = dict(players_by_id.get(entity_id, {}))
+        timeline_player = timeline_by_id.get(entity_id, {})
+        params_id = _integer_id(
+            timeline_player.get("ship_id", timeline_player.get("ship_params_id"))
+        )
+        details = (
+            ship_catalog[0].get(str(params_id), {})
+            if ship_catalog is not None and params_id is not None
+            else {}
+        )
+        internal_name = (
+            details.get("name")
+            if isinstance(details.get("name"), str)
+            else player.get("ship_id") or player.get("ship")
+        )
+        catalog_name = (
+            ship_catalog[1].get(str(params_id))
+            if ship_catalog is not None and params_id is not None
+            else None
+        )
+        player.update({
+            "name": player.get("name") or timeline_player.get("name"),
+            "ship_id": internal_name,
+            "ship": (
+                catalog_name
+                or readable_ship_name(internal_name)
+                if isinstance(internal_name, str)
+                else None
+            ),
+        })
+        result[entity_id] = player
+    return result
 
 
 def _trim_summary(summary: dict) -> None:

@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from numbers import Real
 
 logger = logging.getLogger(__name__)
@@ -530,6 +531,7 @@ def damage_received_events(
     ship_id: int,
     players_by_id: dict[int, dict],
     death_info: dict | None = None,
+    projectile_types: dict[int, str] | None = None,
 ) -> list[dict]:
     """Return who hit me, when and how hard, compact enough for the summary.
 
@@ -544,30 +546,403 @@ def damage_received_events(
     weapon: one of "main_he", "main_ap", "secondary_he", "secondary_ap",
     "torpedo", "depth_charge_airstrike", "bomb_airstrike", "fire", "flood",
     "ram" or "unknown". DamageEvents have no weapon (damage_type "", ammo_id
-    0), so classify_hit() derives it; return "unknown" rather than guess.
+    0), so classify_hit() derives it from timeline evidence and the optional
+    GAMEPARAMS_ID-to-ammo-type lookup. Unresolved weapons remain "unknown".
     """
-    raise NotImplementedError
+    events = timeline.get("events") if isinstance(timeline, dict) else None
+    if not isinstance(events, list):
+        return []
+
+    start_s = battle_start_s(timeline)
+    runs: list[list[dict]] = []
+    runs_by_key: dict[tuple[int | None, float], list[dict]] = {}
+    damage_events = sorted(
+        (
+            event for event in events
+            if isinstance(event, dict)
+            and event.get("event_type") == "DamageEvent"
+            and _integer_id(event.get("target_id")) == ship_id
+            and _number(event.get("timestamp")) is not None
+            and _number(event.get("damage")) is not None
+        ),
+        key=lambda event: _number(event.get("timestamp")) or 0.0,
+    )
+    for event in damage_events:
+        timestamp = _number(event.get("timestamp"))
+        damage = _number(event.get("damage"))
+        if timestamp is None or damage is None:
+            continue
+        attacker_id = _integer_id(event.get("attacker_id"))
+        key = (attacker_id, round(damage, 1))
+        run = runs_by_key.get(key)
+        previous_time = _number(run[-1].get("timestamp")) if run else None
+        if run is None or previous_time is None or timestamp - previous_time >= 2.5:
+            run = []
+            runs.append(run)
+            runs_by_key[key] = run
+        run.append(event)
+
+    received: list[dict] = []
+    for run in runs:
+        first = run[0]
+        first_time = _number(first.get("timestamp"))
+        amounts = [_number(event.get("damage")) for event in run]
+        last_time = _number(run[-1].get("timestamp"))
+        if (
+            first_time is None
+            or last_time is None
+            or any(amount is None for amount in amounts)
+        ):
+            continue
+        attacker_id = _integer_id(first.get("attacker_id"))
+        received.append({
+            "start_s": battle_time(first_time, start_s),
+            **({"end_s": battle_time(last_time, start_s)} if len(run) > 1 else {}),
+            "attacker": _damage_player_reference(
+                players_by_id.get(attacker_id) if attacker_id is not None else None
+            ),
+            "weapon": classify_hit(
+                timeline, first, len(run), projectile_types
+            ),
+            "hits": len(run),
+            "damage": round(sum(amount for amount in amounts if amount is not None), 1),
+        })
+
+    for blow in killing_blows(timeline):
+        if blow["victim_id"] != ship_id:
+            continue
+        death_time = _number(blow.get("time_s"))
+        if death_time is None:
+            continue
+        killer_id = _integer_id(blow.get("killer_id"))
+        received.append({
+            "start_s": battle_time(death_time, start_s),
+            "attacker": _damage_player_reference(
+                players_by_id.get(killer_id) if killer_id is not None else None
+            ),
+            "weapon": _death_info_weapon(death_info),
+            "hits": 1,
+            "damage": _number(blow.get("damage")) or 0.0,
+        })
+
+    received.sort(key=lambda event: event["start_s"])
+    return received
 
 
-def classify_hit(timeline: dict, event: dict, run_length: int) -> str:
+def classify_hit(
+    timeline: dict,
+    event: dict,
+    run_length: int,
+    projectile_types: dict[int, str] | None = None,
+) -> str:
     """Return the weapon of one DamageEvent to me (values: see above).
 
-    Investigate on the real replays first and report in COPILOT_NOTES what
-    works. Ideas, best first:
-    - ShotDestroyedEvent / ShotCreatedEvent with owner_id == attacker at the
-      same timestamp: params_id -> gamedata projectile -> ammo type (HE/AP)
-      and whether the gun is main battery or secondary.
-    - Torpedo hits: a torpedo of the attacker (TorpedoCreatedEvent
-      owner_id) destroyed at that time.
-    - Airstrike: the attacker is not near (> 6 km) and a DepthChargeEvent /
-      squadron of the attacker is active.
-    - Ticks: a run of equal amounts about 1.15 s apart is fire or flood;
-      tell them apart with the own ship's burningFlags / flood state
-      properties.
-    Then reconcile: the per-weapon sums must match the report's by-type
-    figures (expected values for Shards are in the module docstring).
+    Use matching torpedo/projectile events and the closest per-weapon damage
+    stat update. A projectile's ammo type comes from the optional
+    GAMEPARAMS_ID lookup; gun class comes from its fire event or damage stat.
+    Repeated periodic damage is fire only while burning is recorded, or flood
+    when it follows the same attacker's torpedo hit. A one-off tick-sized
+    amount without those signals is not enough evidence.
     """
-    raise NotImplementedError
+    if not isinstance(timeline, dict) or not isinstance(event, dict):
+        return "unknown"
+    events = timeline.get("events")
+    if not isinstance(events, list):
+        return "unknown"
+    attacker_id = _integer_id(event.get("attacker_id"))
+    target_id = _integer_id(event.get("target_id"))
+    timestamp = _number(event.get("timestamp"))
+    if attacker_id is None or target_id is None or timestamp is None:
+        return "unknown"
+
+    if _periodic_damage_run(events, event, run_length):
+        if _follows_torpedo_hit(events, target_id, attacker_id, timestamp):
+            return "flood"
+        if _burning_at(events, target_id, timestamp):
+            return "fire"
+        return "unknown"
+    if _amount_has_periodic_run(events, event):
+        return "unknown"
+
+    stat_weapon = _damage_stat_weapon(events, target_id, timestamp)
+    projectile_weapon = _projectile_weapon(
+        events, attacker_id, timestamp, projectile_types or {}
+    )
+    if projectile_weapon == "torpedo":
+        return "torpedo"
+    if stat_weapon is not None:
+        if (
+            projectile_weapon is not None
+            and projectile_weapon != stat_weapon
+        ):
+            return "unknown"
+        return stat_weapon
+    return projectile_weapon or "unknown"
+
+
+_DAMAGE_STAT_WEAPONS = {
+    "MAIN_HE": "main_he",
+    "MAIN_AP": "main_ap",
+    "ATBA_HE": "secondary_he",
+    "ATBA_AP": "secondary_ap",
+    "TORPEDO": "torpedo",
+    "TORPEDO_ALTER": "torpedo",
+    "TORPEDO_DEEP": "torpedo",
+    "DEPTH_CHARGE": "depth_charge_airstrike",
+    "DEPTH_CHARGE_ASUP": "depth_charge_airstrike",
+    "DEPTH_CHARGE_ALTER": "depth_charge_airstrike",
+    "DEPTH_CHARGE_TC": "depth_charge_airstrike",
+    "BOMBER_AP": "bomb_airstrike",
+    "BOMBER_HE": "bomb_airstrike",
+    "BOMBER_AP_ASUP": "bomb_airstrike",
+    "BOMBER_HE_ASUP": "bomb_airstrike",
+    "BOMBER_AP_ALTER": "bomb_airstrike",
+    "BOMBER_HE_ALTER": "bomb_airstrike",
+    "BOMBER_AP_TC": "bomb_airstrike",
+    "BOMBER_HE_TC": "bomb_airstrike",
+    "BURN": "fire",
+    "FLOOD": "flood",
+    "RAM": "ram",
+}
+
+
+def _damage_stat_weapon(
+    events: list[dict], ship_id: int, timestamp: float
+) -> str | None:
+    candidates: list[tuple[float, str]] = []
+    for item in events:
+        if (
+            not isinstance(item, dict)
+            or item.get("event_type") != "DamageReceivedStatEvent"
+            or _integer_id(item.get("entity_id")) != ship_id
+            or item.get("stat_type") != "AGRO"
+        ):
+            continue
+        weapon = _DAMAGE_STAT_WEAPONS.get(item.get("damage_param"))
+        stat_time = _number(item.get("timestamp"))
+        if weapon is None or stat_time is None:
+            continue
+        distance = abs(stat_time - timestamp)
+        if distance <= 2.1:
+            candidates.append((distance, weapon))
+    if not candidates:
+        return None
+    closest = min(distance for distance, _ in candidates)
+    weapons = {
+        weapon for distance, weapon in candidates
+        if abs(distance - closest) <= 0.05
+    }
+    return next(iter(weapons)) if len(weapons) == 1 else None
+
+
+def _projectile_weapon(
+    events: list[dict],
+    attacker_id: int,
+    timestamp: float,
+    projectile_types: dict[int, str],
+) -> str | None:
+    created_by_shot: dict[int, list[dict]] = {}
+    fire_events = [
+        item for item in events
+        if isinstance(item, dict)
+        and item.get("event_type") in ("GunFireEvent", "SecondaryFireEvent")
+        and _integer_id(item.get("entity_id")) == attacker_id
+    ]
+    for item in events:
+        if (
+            isinstance(item, dict)
+            and item.get("event_type") in ("TorpedoCreatedEvent", "ShotCreatedEvent")
+            and _integer_id(item.get("owner_id")) == attacker_id
+            and (shot_id := _integer_id(item.get("shot_id"))) is not None
+        ):
+            created_by_shot.setdefault(shot_id, []).append(item)
+
+    impacts = [
+        item for item in events
+        if isinstance(item, dict)
+        and item.get("event_type") == "ShotDestroyedEvent"
+        and _integer_id(item.get("owner_id")) == attacker_id
+        and (impact_time := _number(item.get("timestamp"))) is not None
+        and abs(impact_time - timestamp) <= 0.25
+    ]
+    candidates: set[str] = set()
+    for impact in impacts:
+        shot_id = _integer_id(impact.get("shot_id"))
+        if shot_id is None:
+            continue
+        for created in created_by_shot.get(shot_id, []):
+            if created.get("event_type") == "TorpedoCreatedEvent":
+                candidates.add("torpedo")
+                continue
+            params_id = _integer_id(created.get("params_id"))
+            ammo_type = projectile_types.get(params_id) if params_id is not None else None
+            if ammo_type not in ("HE", "AP"):
+                continue
+            created_time = _number(created.get("timestamp"))
+            if created_time is None:
+                continue
+            fire_types = {
+                fire_event.get("event_type")
+                for fire_event in fire_events
+                if (fire_time := _number(fire_event.get("timestamp"))) is not None
+                and abs(fire_time - created_time) <= 1.5
+            }
+            if len(fire_types) == 1:
+                prefix = "main" if next(iter(fire_types)) == "GunFireEvent" else "secondary"
+                candidates.add(f"{prefix}_{ammo_type.lower()}")
+    return next(iter(candidates)) if len(candidates) == 1 else None
+
+
+def _periodic_damage_run(events: list[dict], event: dict, run_length: int) -> bool:
+    if isinstance(run_length, bool) or not isinstance(run_length, int) or run_length < 2:
+        return False
+    attacker_id = _integer_id(event.get("attacker_id"))
+    target_id = _integer_id(event.get("target_id"))
+    damage = _number(event.get("damage"))
+    timestamp = _number(event.get("timestamp"))
+    if attacker_id is None or target_id is None or damage is None or timestamp is None:
+        return False
+    matching = sorted(
+        (
+            item for item in events
+            if isinstance(item, dict)
+            and item.get("event_type") == "DamageEvent"
+            and _integer_id(item.get("attacker_id")) == attacker_id
+            and _integer_id(item.get("target_id")) == target_id
+            and (amount := _number(item.get("damage"))) is not None
+            and round(amount, 1) == round(damage, 1)
+            and (time_s := _number(item.get("timestamp"))) is not None
+            and abs(time_s - timestamp) <= 2.5 * run_length
+        ),
+        key=lambda item: _number(item.get("timestamp")) or 0.0,
+    )
+    group: list[float] = []
+    for item in matching:
+        time_s = _number(item.get("timestamp"))
+        if time_s is None:
+            continue
+        if group and not 0.45 <= time_s - group[-1] < 2.5:
+            if len(group) >= run_length and any(time == timestamp for time in group):
+                return True
+            group = []
+        group.append(time_s)
+    return len(group) >= run_length and any(time == timestamp for time in group)
+
+
+def _amount_has_periodic_run(events: list[dict], event: dict) -> bool:
+    target_id = _integer_id(event.get("target_id"))
+    damage = _number(event.get("damage"))
+    if target_id is None or damage is None:
+        return False
+    matching = sorted(
+        (
+            item for item in events
+            if isinstance(item, dict)
+            and item.get("event_type") == "DamageEvent"
+            and _integer_id(item.get("target_id")) == target_id
+            and (amount := _number(item.get("damage"))) is not None
+            and round(amount, 1) == round(damage, 1)
+            and _number(item.get("timestamp")) is not None
+        ),
+        key=lambda item: _number(item.get("timestamp")) or 0.0,
+    )
+    run = 1
+    for previous, current in zip(matching, matching[1:]):
+        previous_time = _number(previous.get("timestamp"))
+        current_time = _number(current.get("timestamp"))
+        if previous_time is None or current_time is None:
+            run = 1
+            continue
+        run = run + 1 if 0.45 <= current_time - previous_time < 2.5 else 1
+        if run >= 3:
+            return True
+    return False
+
+
+def _follows_torpedo_hit(
+    events: list[dict], target_id: int, attacker_id: int, timestamp: float
+) -> bool:
+    torpedo_ids = {
+        _integer_id(item.get("shot_id"))
+        for item in events
+        if isinstance(item, dict)
+        and item.get("event_type") == "TorpedoCreatedEvent"
+        and _integer_id(item.get("owner_id")) == attacker_id
+    }
+    torpedo_impacts = [
+        item for item in events
+        if isinstance(item, dict)
+        and item.get("event_type") == "ShotDestroyedEvent"
+        and _integer_id(item.get("owner_id")) == attacker_id
+        and _integer_id(item.get("shot_id")) in torpedo_ids
+    ]
+    for damage in events:
+        if (
+            not isinstance(damage, dict)
+            or damage.get("event_type") != "DamageEvent"
+            or _integer_id(damage.get("target_id")) != target_id
+            or _integer_id(damage.get("attacker_id")) != attacker_id
+        ):
+            continue
+        damage_time = _number(damage.get("timestamp"))
+        if damage_time is None or not 0 < timestamp - damage_time <= 5.0:
+            continue
+        if any(
+            (impact_time := _number(impact.get("timestamp"))) is not None
+            and abs(impact_time - damage_time) <= 0.25
+            for impact in torpedo_impacts
+        ):
+            return True
+    return False
+
+
+def _burning_at(events: list[dict], ship_id: int, timestamp: float) -> bool:
+    updates = [
+        item for item in events
+        if isinstance(item, dict)
+        and item.get("event_type") == "PropertyUpdateEvent"
+        and _integer_id(item.get("entity_id")) == ship_id
+        and item.get("property_name") == "burningFlags"
+        and (_number(item.get("timestamp")) or 0.0) <= timestamp
+    ]
+    if updates:
+        latest = max(updates, key=lambda item: _number(item.get("timestamp")) or 0.0)
+        return bool(_integer_id(latest.get("value")))
+    return False
+
+
+def _death_info_weapon(death_info: dict | None) -> str:
+    if not isinstance(death_info, dict):
+        return "unknown"
+    name = death_info.get("name")
+    if not isinstance(name, str):
+        return "unknown"
+    normalized = name.upper()
+    if normalized in ("ADBOMB", "DEPTH_CHARGE", "DEPTH_CHARGE_ASUP"):
+        return "depth_charge_airstrike"
+    if normalized in ("TORPEDO", "TORPEDO_ALTER", "TORPEDO_DEEP"):
+        return "torpedo"
+    if normalized in ("HE_SHELL", "AP_SHELL"):
+        icon = death_info.get("icon")
+        if isinstance(icon, str) and "main_caliber" in icon:
+            return "main_he" if normalized == "HE_SHELL" else "main_ap"
+        if isinstance(icon, str) and "secondary_caliber" in icon:
+            return "secondary_he" if normalized == "HE_SHELL" else "secondary_ap"
+        return "unknown"
+    return _DAMAGE_STAT_WEAPONS.get(normalized, "unknown")
+
+
+def _damage_player_reference(player: dict | None) -> dict:
+    if not isinstance(player, dict):
+        return {"player": None, "ship": None}
+    ship = player.get("ship_id") or player.get("ship")
+    if isinstance(ship, str):
+        match = re.fullmatch(r"[A-Za-z]+\d+_(.+)", ship)
+        if match is not None:
+            ship = match.group(1).replace("_", " ")
+    else:
+        ship = None
+    return {"player": player.get("name"), "ship": ship}
 
 
 def check_damage_consistency(summary: dict) -> list[str]:
