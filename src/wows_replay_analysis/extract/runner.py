@@ -253,8 +253,11 @@ def _write_json_atomic(path: Path, value: object) -> None:
 
 def _publish_extract(staging_dir: Path, match_dir: Path) -> None:
     """Publish a complete staged folder, restoring the old extract on failure."""
-    backup_dir = match_dir.with_name(f".{match_dir.name}.backup-{uuid.uuid4().hex}")
     had_existing = match_dir.exists()
+    backup_parent = Path(tempfile.gettempdir())
+    if backup_parent.stat().st_dev != match_dir.parent.stat().st_dev:
+        backup_parent = match_dir.parent
+    backup_dir = backup_parent / f".{match_dir.name}.backup-{uuid.uuid4().hex}"
     if had_existing:
         os.replace(match_dir, backup_dir)
     try:
@@ -264,4 +267,12 @@ def _publish_extract(staging_dir: Path, match_dir: Path) -> None:
             os.replace(backup_dir, match_dir)
         raise
     if had_existing:
-        shutil.rmtree(backup_dir)
+        try:
+            shutil.rmtree(backup_dir)
+        except OSError as exc:
+            logger.warning(
+                "Published extract %s but could not remove old backup %s: %s",
+                match_dir.name,
+                backup_dir,
+                exc,
+            )

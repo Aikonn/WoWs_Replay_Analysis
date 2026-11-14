@@ -12,6 +12,7 @@ Uses argparse from the standard library (no extra dependency).
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import logging
 from pathlib import Path
 
@@ -65,6 +66,23 @@ def build_parser() -> argparse.ArgumentParser:
 PARSER_LOGGERS: tuple[str, ...] = ("replay_unpack",)
 
 
+class _ReplayParserLogFilter(logging.Filter):
+    """Drop low-severity records originating in replays_unpack."""
+
+    def __init__(self, package_dir: Path) -> None:
+        super().__init__()
+        self.package_dir = package_dir.resolve()
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno >= logging.ERROR:
+            return True
+        try:
+            Path(record.pathname).resolve().relative_to(self.package_dir)
+        except (OSError, ValueError):
+            return True
+        return False
+
+
 def quiet_parser_logs(verbose: bool) -> None:
     """Keep third-party parser logging out of the console unless --verbose.
 
@@ -82,7 +100,28 @@ def quiet_parser_logs(verbose: bool) -> None:
     Real failures still reach the user: they raise, and runner records them in
     meta.json `errors` and the run summary.
     """
-    raise NotImplementedError
+    for name in PARSER_LOGGERS:
+        logging.getLogger(name).setLevel(logging.DEBUG if verbose else logging.ERROR)
+
+    root = logging.getLogger()
+    root.filters[:] = [
+        item for item in root.filters if not isinstance(item, _ReplayParserLogFilter)
+    ]
+    for handler in root.handlers:
+        handler.filters[:] = [
+            item for item in handler.filters if not isinstance(item, _ReplayParserLogFilter)
+        ]
+
+    if verbose:
+        return
+
+    spec = importlib.util.find_spec("replay_unpack")
+    if spec is None or spec.origin is None:
+        raise RuntimeError("Cannot locate the replays_unpack package to filter its log records")
+    parser_filter = _ReplayParserLogFilter(Path(spec.origin).parent)
+    root.addFilter(parser_filter)
+    for handler in root.handlers:
+        handler.addFilter(parser_filter)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -99,6 +138,7 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(levelname)s: %(message)s",
     )
+    quiet_parser_logs(args.verbose)
 
     if args.command != "extract":
         print(f"{args.command} is not implemented yet")

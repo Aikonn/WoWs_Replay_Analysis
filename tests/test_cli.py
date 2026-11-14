@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import importlib.util
+import io
+import logging
 from pathlib import Path
 
 import pytest
@@ -58,3 +61,50 @@ def test_main_reports_unimplemented_command_without_loading_config(
 
     assert cli.main(["process"]) == 2
     assert capsys.readouterr().out.strip() == "process is not implemented yet"
+
+
+def test_quiet_parser_logs_filters_parser_noise_but_preserves_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spec = importlib.util.find_spec("replay_unpack")
+    assert spec is not None and spec.origin is not None
+    package_dir = Path(spec.origin).parent
+    parser_file = package_dir / "core" / "network" / "player.py"
+    root = logging.getLogger()
+    parser_logger = logging.getLogger("replay_unpack")
+    handler = logging.StreamHandler(io.StringIO())
+    old_root_level = root.level
+    old_parser_level = parser_logger.level
+    root.addHandler(handler)
+    root.setLevel(logging.INFO)
+    monkeypatch.setattr(parser_logger, "level", old_parser_level)
+
+    try:
+        cli.quiet_parser_logs(False)
+        assert parser_logger.level == logging.ERROR
+
+        handler.handle(logging.LogRecord(
+            "root", logging.INFO, str(parser_file), 10, "unknown packet", (), None
+        ))
+        handler.handle(logging.LogRecord(
+            "root", logging.ERROR, str(parser_file), 11, "parser failure", (), None
+        ))
+        handler.handle(logging.LogRecord(
+            "app", logging.INFO, __file__, 12, "application info", (), None
+        ))
+        output = handler.stream.getvalue()
+        assert "unknown packet" not in output
+        assert "parser failure" in output
+        assert "application info" in output
+
+        cli.quiet_parser_logs(True)
+        assert parser_logger.level == logging.DEBUG
+        handler.handle(logging.LogRecord(
+            "root", logging.INFO, str(parser_file), 13, "verbose parser info", (), None
+        ))
+        assert "verbose parser info" in handler.stream.getvalue()
+    finally:
+        cli.quiet_parser_logs(True)
+        parser_logger.setLevel(old_parser_level)
+        root.setLevel(old_root_level)
+        root.removeHandler(handler)

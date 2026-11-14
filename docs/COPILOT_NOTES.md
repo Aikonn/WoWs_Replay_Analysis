@@ -26,7 +26,20 @@ the entry to **Resolved**.
 
 ## Open
 
-_(none)_
+### 2026-11-14 · Progress · Stage 2 processing implemented
+Module: `cli.py`, `process/`, `extract/runner.py`, `tests/`
+
+Finished parser log filtering and implemented raw loading, report-to-database stats, database rebuild/upsert, and compact match summaries. The full suite passes (59 tests). Against the two real raw archives, forced processing wrote 2 database rows and 2 summaries (48,043 and 47,628 bytes; 80 and 74 key events, 27 and 30 timeline samples); subsequent non-forced database and summary runs wrote 0. The recording player's damage uses the post-battle report total; other players' damage is aggregated from timeline `DamageEvent`s.
+
+### 2026-11-14 · Question · Match summary source mappings
+Module: `process/match_summary.py`
+
+The report's team-score rows contain internal ship IDs rather than localized names and no per-player damage totals; `shots_damage_map` does not match the post-battle damage total. I use the report total for the recording player and timeline `DamageEvent`s for the rest. The summary also preserves numeric `victory_type` values and limits nearest enemies to three. Should these choices or mappings change?
+
+### 2026-11-14 · Issue · OneDrive backup cleanup denied
+Module: `extract/runner.py`, `process/raw_loader.py`
+
+On this checkout, OneDrive's `DeleteSubdirectoriesAndFiles` deny ACL prevents removing old extract backups, even after moving them to `%TEMP%`. The runner now warns if cleanup fails after a successful publish; earlier forced runs left empty dot-prefixed backup folders, which the raw loader ignores.
 
 ## Resolved
 

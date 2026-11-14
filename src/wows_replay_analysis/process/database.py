@@ -6,10 +6,16 @@ The database can always be rebuilt from data/raw/.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from pathlib import Path
 
 from wows_replay_analysis.config import Config
+from wows_replay_analysis.process import PROCESSOR_VERSION
+from wows_replay_analysis.process.raw_loader import list_raw_matches, load_raw_match
+from wows_replay_analysis.process.stats import match_stats_row
+
+logger = logging.getLogger(__name__)
 
 # First version of the schema. Add columns rather than rename them, and bump
 # PROCESSOR_VERSION when it changes.
@@ -46,12 +52,43 @@ CREATE TABLE IF NOT EXISTS matches (
 
 def connect(path: Path) -> sqlite3.Connection:
     """Open (and create if needed) the database and apply SCHEMA."""
-    raise NotImplementedError
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(path)
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.executescript(SCHEMA)
+        connection.commit()
+    except Exception:
+        connection.close()
+        raise
+    return connection
 
 
 def upsert_match(conn: sqlite3.Connection, row: dict) -> None:
     """Insert or replace one match row."""
-    raise NotImplementedError
+    table_columns = {
+        record["name"] for record in conn.execute("PRAGMA table_info(matches)")
+    }
+    columns = list(row)
+    if "match_id" not in row:
+        raise ValueError("A match row must include match_id")
+    if set(columns) != table_columns:
+        missing = sorted(table_columns - set(columns))
+        extra = sorted(set(columns) - table_columns)
+        raise ValueError(f"Invalid match row columns (missing={missing}, extra={extra})")
+
+    column_sql = ", ".join(f'"{column}"' for column in columns)
+    placeholders = ", ".join("?" for _ in columns)
+    updates = ", ".join(
+        f'"{column}" = excluded."{column}"'
+        for column in columns
+        if column != "match_id"
+    )
+    conn.execute(
+        f"INSERT INTO matches ({column_sql}) VALUES ({placeholders}) "
+        f"ON CONFLICT(match_id) DO UPDATE SET {updates}",
+        [row[column] for column in columns],
+    )
 
 
 def rebuild_database(config: Config, force: bool = False) -> int:
@@ -59,4 +96,29 @@ def rebuild_database(config: Config, force: bool = False) -> int:
 
     Return the number of rows written.
     """
-    raise NotImplementedError
+    connection = connect(config.database_path)
+    written = 0
+    try:
+        for match_dir in list_raw_matches(config.raw_dir):
+            try:
+                existing = connection.execute(
+                    "SELECT processor_version FROM matches WHERE match_id = ?",
+                    (match_dir.name,),
+                ).fetchone()
+                if (
+                    not force
+                    and existing is not None
+                    and existing["processor_version"] >= PROCESSOR_VERSION
+                ):
+                    continue
+
+                raw = load_raw_match(match_dir)
+                row = match_stats_row(raw)
+                with connection:
+                    upsert_match(connection, row)
+                written += 1
+            except Exception:
+                logger.exception("Could not process raw match %s", match_dir.name)
+    finally:
+        connection.close()
+    return written
