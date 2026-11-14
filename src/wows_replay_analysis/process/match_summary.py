@@ -32,10 +32,9 @@ Source mapping decisions (2026-11-14, after the first real run):
   Show `ship` as a readable name built by readable_ship_name() and keep the
   internal name as `ship_id`. If the gamedata clone turns out to contain
   localized ship names, use them instead and say so in COPILOT_NOTES.
-- Damage: the recording player's damage is the post-battle report total
-  (authoritative). Other players' damage is summed from timeline
-  DamageEvents and stored as `damage_timeline` (not `damage`), so the AI
-  knows it is an estimate. Ignore shots_damage_map for totals.
+- Damage: superseded by "Combat facts" below. Exact damage for every
+  player comes from the public results; `damage_timeline` (estimate) only
+  for incomplete replays. Ignore shots_damage_map for totals.
 - Result: keep the numeric `victory_type`, and add `decided_by` from
   decided_by(): "all_enemies_destroyed", "all_allies_destroyed", "points",
   "time" or null when unclear. Derive it from the data (alive ships per team
@@ -54,9 +53,21 @@ Source mapping decisions (2026-11-14, after the first real run):
 
 Combat facts (2026-11-14, second review; see process/combat.py for the
 root causes and the verified numbers):
-- me.damage_received = combat.received_damage_total(damage_received_by_type),
-  never the parser's `total`; drop the `total` key from
-  damage_received_by_type (it is wrong and redundant).
+- Times: every time in the summary (time_s, start_s, end_s,
+  time_of_death_s, timeline samples) is battle time, seconds since the
+  battle start (combat.battle_time), so it matches the game and WoWs
+  Toolkit. Add match.battle_start_s (recording time of the start) and
+  match.time_note: "Times are seconds since battle start. In-game clock =
+  20:00 minus the time." (use the real battle length). Timeline samples
+  are every 30 s of battle time, starting at 0.
+- Exact numbers for everyone (process/public_results.py, complete replays):
+  each teams[] entry gets damage, damage_received, spotting_damage,
+  potential_damage, life_time_s and distance_km; drop damage_timeline
+  then. me gets the same, and me.damage_received_by_type =
+  public_results.received_damage_breakdown() (replaces the parser's
+  section, which double-counts and misses carrier bombers). Incomplete
+  replays keep damage_timeline (combat.damage_dealt_by_ship) and take
+  damage received from the HP track.
 - me.healing = combat.healing_received() (null when none).
 - me.damage_received_events = combat.damage_received_events(): who hit me,
   when, with what, how much. Ticks are merged, so it stays small.
@@ -64,8 +75,8 @@ root causes and the verified numbers):
   with `death_reason` kept as a number. damage_summary windows from
   combat.damage_windows() with damage_dealt, damage_taken and healed; the
   window with my death ends at the time of death.
-- teams[].damage_timeline from combat.damage_dealt_by_ship() (now includes
-  killing blows; still an estimate).
+- teams[].damage_timeline (incomplete replays only) from
+  combat.damage_dealt_by_ship() (now includes killing blows; an estimate).
 - timeline samples: nearest enemies get `distance_km`
   (combat.world_to_km), not `distance_m`.
 - consumable events: `consumable` = the type name from

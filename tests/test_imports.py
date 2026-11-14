@@ -17,6 +17,7 @@ MODULES = [
     "wows_replay_analysis.process.match_summary",
     "wows_replay_analysis.process.stats",
     "wows_replay_analysis.process.combat",
+    "wows_replay_analysis.process.public_results",
     "wows_replay_analysis.process.database",
     "wows_replay_analysis.process.selection",
     "wows_replay_analysis.process.minimap",

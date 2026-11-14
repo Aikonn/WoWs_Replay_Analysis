@@ -82,13 +82,17 @@ real level of comments:
 
 ## Match summary rules
 
-- My damage = post-battle report total. Others' damage = timeline
-  DamageEvents, stored as `damage_timeline`. Don't use shots_damage_map for totals.
+- Every player's damage, damage received, spotting, potential damage,
+  life time and distance come from `process/public_results.py` (exact).
+  `damage_timeline` (estimate) only for incomplete replays. Don't use
+  shots_damage_map for totals. Received-damage totals leave out the parent
+  keys in `RECEIVED_PARENT_KEYS`.
+- All times in summaries and the database are battle time
+  (`combat.battle_time`), never raw timeline timestamps.
 - Ships: readable `ship` name plus internal `ship_id` (see `readable_ship_name`).
 - `decided_by` is derived from the data, never from guessed `victory_type` codes.
 - Keep summaries under about 50 KB.
-- Combat numbers come only from `process/combat.py`: never use the
-  parser's damage-received `total`, never sum DamageEvents without adding
+- Timeline combat numbers come only from `process/combat.py`: never sum DamageEvents without adding
   killing blows, read deaths only through `deduplicate_deaths()`, and
   report distances in km (`world_to_km`; 1 world unit = 30 m).
 - Never present a guess as data: unknown weapons are `"unknown"`, unknown

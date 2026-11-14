@@ -32,7 +32,37 @@ the entry to **Resolved**.
 
 ## Open
 
-### 2026-11-14 · Task · 0a. Combat data fixes (Claude → Copilot)
+### 2026-11-14 · Task · 0a. Exact numbers for all players, battle time (Claude → Copilot)
+Module: `process/public_results.py` (new), `process/match_summary.py`, `process/stats.py`, `process/database.py`
+
+The owner compared the Shards summary with WoWs Toolkit. The toolkit has
+exact damage for every player (ours: Richthofen 78,308 timeline estimate vs
+162,892 real) and times 30 s earlier than ours. Both come from data we
+already extract: the timeline's BattleResultsEvent holds the game's public
+results for all 24 players, and our timestamps include the 30 s countdown.
+See the `public_results.py` docstring (field decoding, the parent/sub-type
+duplicates in received damage, verified values) and the "Combat facts"
+part of the `match_summary.py` docstring.
+
+Implement `public_results.py` and use it in the summary (teams and me) and
+the database row (`damage_received`, new `distance_km` column with
+migration). Times in the summary and `time_of_death_s` become battle time
+(needs `combat.battle_start_s` / `battle_time`, do those here too).
+
+Done when: tests cover decoding with a short fake names list, the length
+mismatch (None + warning), and the parent-key rule (a row with bomb +
+bomb_avia + bomb_airsupport counts each hit once); on Shards every
+player's damage, spotting damage and distance match the toolkit screenshot
+values listed below, Med_1024 damage received is 19,998 (the toolkit's
+25,779 is its own double count of adbomb), life_time_s 694 and
+time_of_death_s 694.7; you report what potential damage sums to (toolkit:
+285,230) and which agro_* fields make it up.
+Toolkit values to check (damage / spotting / distance km): Med_1024 81,673
+/ 39,511 / 58.38; buexnguschtl 162,892 / 36,469 / 17.24; Castle3 150,612
+/ 40,015 / 36.66; Wofl_81 18,987 / 990 / 13.58; Sitzenbleiber 63,562 /
+5,159 / 37.70.
+
+### 2026-11-14 · Task · 0b. Combat data fixes (Claude → Copilot)
 Module: `process/combat.py` (new), `process/match_summary.py`, `process/stats.py`
 
 The owner discussed the Shards summary (`20261113_184244_PRSS110-K-type_23_Shards`)
@@ -43,32 +73,34 @@ double-counts ASW airstrikes, killing blows have no DamageEvent, healing is
 invisible to DamageEvents, every nearby kill appears twice (Avatar and Vehicle
 DeathEvent), and distances are world units (30 m), not metres.
 
-Implement in `combat.py`: `world_to_km`, `received_damage_total`,
-`health_track`, `deduplicate_deaths`, `killing_blows`, `damage_dealt_by_ship`,
+Builds on 0a. Implement in `combat.py`: `world_to_km`, `battle_start_s`,
+`battle_time`, `health_track`, `deduplicate_deaths`, `killing_blows`, `damage_dealt_by_ship`,
 `damage_windows`, `healing_received`, `check_damage_consistency`. Wire them
 into `match_summary.py` and `stats.py` as the "Combat facts" parts of their
 module docstrings say (replace `_damage_by_ship`, `_damage_totals` and the
 bucket code in `_build_events`; deaths in `stats.py` and `decided_by` go
-through `deduplicate_deaths`). Bump `PROCESSOR_VERSION` to 3.
-`damage_received_events` / `classify_hit` are task 0c; leave
+through `deduplicate_deaths`). Bump `PROCESSOR_VERSION` to 3 (one bump for
+0a and 0b together).
+`damage_received_events` / `classify_hit` are task 0d; leave
 `me.damage_received_events` out until then.
 
 Regression check: unit tests on small synthetic timelines for each function
 (duplicate Avatar+Vehicle death; killing blow without DamageEvent; heal ticks
-and `regeneratedHealth`; a window cut at death; the airstrike double key), and
+and `regeneratedHealth`; a window cut at death; battle start from a
+`timeLeft` countdown), and
 a test that `check_damage_consistency` flags each of the five problems. Then
 run `process --force` and `check_damage_consistency` on all real matches.
 
-Done when: tests pass; on the Shards match `me.damage_received` = 19998,
-`me.healing.total` = 997.5 (one event 613.2–627.2 s), the sum of window
-`damage_taken` = 19997.5 (±2) with the last window ending at 727.1, 35 raw
+Done when: tests pass; on the Shards match (battle time, start 32.35 s)
+`me.healing.total` = 997.5 (one event 580.9–594.9 s), the sum of window
+`damage_taken` = 19997.5 (±2) with the last window ending at 694.7, 35 raw
 DeathEvents become one kill per victim (count reported here),
 `me.damage` still 81673 and my DamageEvents + killing blows within about 1 %
 of it (report the gap and whether it is flooding with attacker_id 0);
 `data_warnings` is empty on all four real matches or each warning is
 explained here; summary sizes listed.
 
-### 2026-11-14 · Task · 0b. Consumable ids in the timeline (Claude → Copilot)
+### 2026-11-14 · Task · 0c. Consumable ids in the timeline (Claude → Copilot)
 Module: `extract/parser_patches.py` (new), `extract/timeline_parser.py`, `extract/__init__.py`, `process/match_summary.py`
 
 All ConsumableEvents have id and type 0. Root cause in wows-replay-parser
@@ -83,9 +115,10 @@ Done when: a unit test feeds the patched factory a dict with
 right id each time; the patch is a logged no-op when `_METHOD_FACTORIES`
 has no "onConsumableUsed"; after the re-extract the Shards summary shows the
 K type's 8 consumable uses with names (list them here with time and
-duration; I expect damage control at 558.6 and 608.5 s, 5 s each).
+duration; I expect damage control at 526.3 and 576.1 s battle time, 5 s
+each).
 
-### 2026-11-14 · Design · 0c. Who hit me, with what (Claude → Copilot)
+### 2026-11-14 · Design · 0d. Who hit me, with what (Claude → Copilot)
 Module: `process/combat.py`, `process/match_summary.py`
 
 Implement `damage_received_events` and `classify_hit` and add
@@ -101,7 +134,7 @@ secondary HE 1590, torpedoes 3334, depth charges 5781, fire 3610,
 flood 1490), or you report which can't be classified and why; the Shards
 entry list fits in about 3 KB.
 
-Do tasks 0a, 0b and 0c first (data correctness), then the tasks below in
+Do tasks 0a to 0d first, in order (data correctness), then the tasks below in
 their order; each one is small enough for one session.
 
 ### 2026-11-14 · Task · 2. Random-battles-only match filter (Claude → Copilot)

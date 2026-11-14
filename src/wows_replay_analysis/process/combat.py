@@ -3,15 +3,15 @@
 Shared by match_summary.py (events, timeline samples) and stats.py
 (timeline fallbacks for incomplete replays). Added 2026-11-14 after the first
 AI discussion of a real summary (Shards, K type, processor_version 2) found
-wrong numbers. Root causes, verified on that replay:
+wrong numbers. Root causes, verified on that replay (times in this
+docstring are recording time; battle time = recording time - 32.35 s):
 
 1. damage_received.total was 5,781 too high. replays_unpack computes the
    section's `total` as the sum of ALL `received_damage_*` keys, and the game
-   reports the ASW airstrike damage twice: `received_damage_dbomb_airsupport`
-   = 5781 and `received_damage_adbomb` = 5781 (same hits, two keys). The
-   by-type figures are right. Fix: received_damage_total() sums the by-type
-   leaves; never use the parser's `total` for damage received. (Damage
-   dealt is fine: the parser takes the game's own `damage` value there.)
+   stores some damage twice (parent and sub-type keys, here `adbomb` and
+   `dbomb_airsupport`, 5781 each). Fix: process/public_results.py, which
+   leaves the parent keys out. (Damage dealt is fine: the parser takes the
+   game's own `damage` value there.)
 2. Damage windows missed 881.4 HP. The killing blow has no DamageEvent at
    all; the game sends only the death. The same is true for every kill, so
    all DamageEvent sums (mine dealt, others' damage_timeline) are too low by
@@ -29,6 +29,10 @@ wrong numbers. Root causes, verified on that replay:
 5. Positions are BigWorld world units. 1 unit = 30 m (GameParams use the
    same unit, e.g. torpedo maxDist x 30 = metres; Shards positions span
    about +-600 units = 36 km). Report distances in km.
+6. Times: timeline timestamps count from the start of the recording, which
+   includes the 30 s countdown. The battle starts at 32.35 s on Shards
+   (battle_start_s). The game's life_time_sec and WoWs Toolkit use battle
+   time, so all times in summaries are battle time (battle_time()).
 
 Verified per-hit reconciliation for that replay (DamageEvents to me plus the
 killing blow, against the report's by-type numbers): MB HE 4192.65 (one
@@ -53,14 +57,21 @@ def world_to_km(units: float) -> float:
     raise NotImplementedError
 
 
-def received_damage_total(by_type: dict | None) -> int | None:
-    """Sum the damage leaves of the report's details.damage_received data.
+def battle_start_s(timeline: dict | None) -> float | None:
+    """Return the recording time when the battle starts (end of countdown).
 
-    Walk the dict and add every `damage` value plus the `other` values
-    (ram, fire, flood); skip the key `total`. Return None for None or an
-    empty dict. Shards replay: 19,998 (the parser's total said 25,779).
-    Also used by stats.py for the database column.
+    The BattleLogic entity's `timeLeft` property counts the 30 s countdown
+    down to 0, then jumps to the battle length (1200) and `battleStage`
+    becomes 0; that event's timestamp is the start (Shards: 32.35 s).
+    None when not found.
     """
+    raise NotImplementedError
+
+
+def battle_time(recording_s: float, start_s: float | None) -> float:
+    """Convert a recording time to battle time (seconds since battle start),
+    rounded to 0.1. Negative during the countdown; unchanged when start_s is
+    None."""
     raise NotImplementedError
 
 
@@ -193,9 +204,10 @@ def check_damage_consistency(summary: dict) -> list[str]:
 
     Log each problem as a warning in build_all_summaries; never fail the
     summary. Checks, each skipped when its inputs are missing:
-    1. me.damage_received == sum of me.damage_received_by_type leaves.
+    1. me.damage_received == sum of me.damage_received_by_type categories.
     2. me.damage_received - healing.total == max_health - final HP (0 when
        the player died), within HP_TOLERANCE x number of hits.
+    2b. me.time_of_death_s within 3 s of me.life_time_s (both battle time).
     3. sum of damage_summary damage_taken == me.damage_received (when the
        replay is complete or the player died while recording).
     4. no two kill events with the same victim.

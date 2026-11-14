@@ -137,8 +137,9 @@ heights, not just outlines.
 ## Single-match summary sources
 
 - **My numbers** come from the post-battle report (exact).
-- **Other players' damage** is summed from timeline damage events and labelled
-  `damage_timeline`, because the report's team tab has no per-player damage.
+- **Other players' numbers** come from the game's public results (exact,
+  see below). Only incomplete replays use the timeline estimate
+  `damage_timeline`.
 - **Ship names**: the report only has internal names (`PRSS110_K_type`); the
   summary shows a readable form (`K type`) and keeps the internal one.
 - **How the match was decided** (`decided_by`) is derived from the data:
@@ -149,9 +150,18 @@ heights, not just outlines.
 Checked against the Shards replay of 2026-11-13; details and verified numbers
 are in `process/combat.py`.
 
-- **Damage received total**: replays_unpack sums every `received_damage_*`
-  key, and the game reports ASW airstrike damage under two keys
-  (`dbomb_airsupport` and `adbomb`). We sum the by-type figures instead.
+- **Exact numbers for every player** are in the game's public results
+  (timeline `BattleResultsEvent`, complete replays only): damage, damage
+  received, spotting, potential damage, life time, distance. They match
+  WoWs Toolkit. The timeline estimate `damage_timeline` is only for
+  incomplete replays.
+- **Damage received**: the game stores some damage twice, as a parent key
+  and its sub-types (`bomb`, `tbomb`, `adbomb`, ...). replays_unpack sums
+  all keys, and WoWs Toolkit still double-counts `adbomb`. We leave the
+  parents out (`process/public_results.py`).
+- **Times are battle time**, seconds since the end of the 30 s countdown,
+  like the game and WoWs Toolkit. The raw timeline counts from the start
+  of the recording.
 - **Killing blows have no damage event.** The game sends only the death.
   Damage taken comes from the ship's HP track (`health` updates), and
   damage dealt adds each victim's last HP to the killer.
@@ -281,7 +291,8 @@ src/wows_replay_analysis/
         raw_loader.py             Reads one raw extract
         selection.py              Match filter (random battles only by default)
         match_summary.py          Condensed single-match JSON
-        combat.py                 HP track, damage, healing, kills, distances
+        combat.py                 HP track, damage, healing, kills, distances, battle time
+        public_results.py         Exact post-battle numbers for every player
         minimap.py                Minimap picture per match
         terrain.py                Island heights, cover and line-of-sight facts
         stats.py                  One database row per match
