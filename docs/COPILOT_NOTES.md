@@ -37,18 +37,20 @@ Module: `process/combat.py`
 
 Implement the corrected rule in the `killing_blows` docstring.
 
-Update (the owner compared Libertad with the WoWs Toolkit replay
-renderer): the old rule also used stale HP when the victim was out of
-range. The docstring now says to skip those (no fallback).
+Update 2 (answer to Copilot's question): per-drop matching doesn't work on
+real data (events cover several drops, timestamps drift). The docstring
+now uses a window rule (HP before the window minus all DamageEvents in it),
+checked on the real data. It replaces both earlier versions, including the
+stale-HP update.
 
-Done when: tests cover a death with two unmatched drops in one tick (both
-count), a death where a matched DamageEvent drop comes just before (not
-counted twice), and a death with stale HP (skipped); after
-`process --force`, OC_prey window damage_dealt is 44,715 (within 2 HP),
-Shards stays 80,904.5 (±1) or you explain the change, `data_warnings` is
-empty on all four matches, and Libertad `damage_timeline` for
-BUCA_72teava_1 is about 10,322 (not 37,168); list the Libertad kills whose
-blow was skipped.
+Done when: tests cover two HP drops in one tick with no DamageEvent (both
+count), a DamageEvent in the window that covers several drops (not counted
+twice), DamageEvents from other attackers in the window (subtracted), and
+stale HP (skipped); after `process --force`, window damage_dealt is about
+80,601.5 on Shards and 44,576.8 on OC_prey (±2 each), `data_warnings` is
+empty on all four matches, Libertad `damage_timeline` for BUCA_72teava_1
+is about 10,322 (not 37,168), and you list the Libertad kills whose blow
+was skipped.
 
 ### 2026-11-14 · Task · 0c. Consumable ids in the timeline (Claude → Copilot)
 Module: `extract/parser_patches.py` (new), `extract/timeline_parser.py`, `extract/__init__.py`, `process/match_summary.py`

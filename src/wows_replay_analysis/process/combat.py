@@ -207,20 +207,23 @@ def killing_blows(timeline: dict | None) -> list[dict]:
     """Return the damage of every killing blow, which has no DamageEvent.
 
     For each deduplicated death: {"time_s", "victim_id", "killer_id",
-    "damage"}. The fatal hit and any hits in the same instant have no
-    DamageEvent, so damage = the victim's HP drops in the last 1.0 s up to
-    the death that are not matched by a DamageEvent on the victim (same
-    amount within 1 HP, within 0.3 s). Matched drops belong to their own
-    attackers. No fallback: when the victim has no HP drop in that last
-    1.0 s (its ship was out of the client's range, so its HP is stale),
-    the killing blow is unknown; skip it and count it (DEBUG log). Libertad
-    (2026-11-05): Nile666_'s last known HP was 26,846 from 22.7 s before
-    the kill and Xieres87's 15,390 from 146 s before; the old last-HP rule
-    gave BUCA_72teava_1 27,026 damage he never did.
-    OC_prey (2026-11-13), Warzeimer at 268.4 s recording time: HP 8383.5 ->
-    341.1 -> 0 in one tick, no DamageEvent from the killer, so the killing
-    blow is 8383.5 (only the 341.1 step would leave my damage 8,042 short).
-    The 46 and 48 attacker-0 DamageEvents in the same tick match no drop.
+    "damage"}. The fatal hit and hits in the same instant have no
+    DamageEvent, and DamageEvents don't line up one-to-one with HP drops
+    (one event can cover several drops, timestamps differ by up to ~0.5 s),
+    so don't match drops to events. Rule (window W = 1.0 s before the death):
+        damage = max(0, HP_before - sum of all DamageEvents on the victim
+                     with death - W <= timestamp <= death)
+    where HP_before = the victim's last track value before death - W.
+    Freshness: the victim must have at least one HP update inside the
+    window; otherwise its HP is stale (ship out of the client's range) and
+    the blow is unknown: skip it and count it (DEBUG log). No fallback.
+    Checked on the real data (2026-11-14, my damage = my DamageEvents +
+    my killing blows, against the report): Shards 79,302.9 + 1,298.6 =
+    80,601.5 of 81,673 (-1.3 %); OC_prey 36,287.4 + 8,289.5 (Warzeimer,
+    HP 8383.5 -> 341.1 -> 0 in one tick) + 0 (JaGGa_Man) = 44,576.8 of
+    44,715 (-0.3 %). Libertad: Nile666_ (last HP 22.7 s old) and Xieres87
+    (146 s old) are skipped; the old last-HP rule gave BUCA_72teava_1
+    27,026 damage he never did.
     Skip deaths where the victim's HP is unknown or the killer is the victim
     itself (e.g. flooding with no attacker); log those at DEBUG.
     """
