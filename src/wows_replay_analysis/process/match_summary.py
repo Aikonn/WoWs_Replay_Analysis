@@ -87,7 +87,7 @@ def build_match_summary(raw: RawMatch) -> dict:
     hidden = report.get("hidden") if isinstance(report.get("hidden"), dict) else {}
     timeline = raw.timeline or {}
     timeline_meta = timeline.get("meta") if isinstance(timeline.get("meta"), dict) else {}
-    stats = match_stats_row(raw) if raw.report is not None else {}
+    stats = match_stats_row(raw) if raw.report is not None or raw.timeline is not None else {}
 
     players_by_id, players_by_account = _player_indexes(raw, hidden)
     own_ship_id, own_name = _own_player(raw, replay_info, players_by_id)
@@ -125,6 +125,8 @@ def build_match_summary(raw: RawMatch) -> dict:
         or replay_info.get("mapDisplayName")
         or _map_basename(timeline_meta.get("map") or replay_info.get("mapName"))
     )
+    if isinstance(map_name, str):
+        map_name = _map_basename(map_name)
     result_info = hidden.get("battle_result")
     result_info = result_info if isinstance(result_info, dict) else {}
     result = stats.get("result")
@@ -153,6 +155,8 @@ def build_match_summary(raw: RawMatch) -> dict:
 
     own_state = _last_own_state(timeline, own_ship_id)
     survived = stats.get("survived")
+    if survived is not None:
+        survived = bool(survived)
     if survived is None and own_state is not None:
         survived = own_state.get("is_alive")
     summary = {
@@ -168,6 +172,14 @@ def build_match_summary(raw: RawMatch) -> dict:
             or timeline_meta.get("version"),
             "duration_s": duration,
             "result": result,
+            "replay_complete": stats.get("replay_complete"),
+            "end_reason": stats.get("end_reason"),
+            "recorded_s": stats.get("recorded_s"),
+            **(
+                {"note": "Events after recorded_s are unknown."}
+                if stats.get("replay_complete") == 0
+                else {}
+            ),
             "decided_by": decided_by(raw, own_team),
             "result_decision": {
                 "winner_team_id": result_info.get("winner_team_id"),
@@ -206,6 +218,7 @@ def build_match_summary(raw: RawMatch) -> dict:
             "frags": stats.get("frags", 0),
             "ribbons": ribbon_counts,
             "base_xp": stats.get("base_xp"),
+            "stats_source": stats.get("stats_source"),
         },
         "teams": team_lists,
         "timeline": _build_timeline(timeline, own_ship_id, own_team, players_by_id, duration),
@@ -897,7 +910,6 @@ def _player_reference(player: dict | None, player_id: int | None) -> dict | None
     return {
         "name": player.get("name"),
         "ship": readable_ship_name(ship_id),
-        "ship_id": ship_id,
         "class": player.get("class"),
         "tier": player.get("tier"),
     }

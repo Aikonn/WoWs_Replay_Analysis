@@ -26,6 +26,19 @@ the entry to **Resolved**.
 
 ## Open
 
+### 2026-11-14 · Progress · Incomplete replay processing verified
+Module: `extract/runner.py`, `process/`
+
+Implemented cleanup retry, timeline fallbacks, four database columns (including migration), and processor version 2. Forced extraction succeeded for all four replays with no parser errors; processing wrote four rows and four summaries (largest: 48,683 bytes). Gamedata contains internal ship IDs but no localized ship names.
+
+- `20261105_215356_PVSB010-Libertad_35_NE_north_winter`: no Stage 1 errors; `battle_result` is null and `battle_results_beta.tabs` is empty (team_score, personal_score, details missing). Last events: ScoreUpdateEvent 590.981s; PositionEvent 591.105s; PositionEvent 591.105s; PropertyUpdateEvent 591.105s; PositionEvent 591.105s; PropertyUpdateEvent 591.105s. `replay_end()` returned incomplete / `left_after_death` / 591.105s; the ship's DeathEvent at 452.409s and final dead state agree.
+- `20261112_202105_PRSS110-K-type_47_Sleeping_Giant`: no Stage 1 errors; `battle_result` is null and `battle_results_beta.tabs` is empty (team_score, personal_score, details missing). Last events: ShotDestroyedEvent 647.798s; ShipCracksEvent 647.798s; ShipCracksEvent 647.798s; PositionEvent 647.798s; PropertyUpdateEvent 647.798s; PositionEvent 647.798s. `replay_end()` returned incomplete / `left_after_death` / 647.798s; the ship's DeathEvent at 335.655s and final dead state agree.
+
+### 2026-11-14 · Issue · Backup cleanup still blocked by OneDrive
+Module: `extract/runner.py`
+
+Cleanup matched the existing backup folders but `shutil.rmtree` failed with Windows `Access is denied` (WinError 5): 0 deleted, 6 remain after extraction. It logs and continues; the leftovers are harmless and will be retried on the next run.
+
 ### 2026-11-14 · Design · Incomplete replays (Claude → Copilot)
 Module: `process/stats.py`, `process/database.py`, `process/match_summary.py`
 

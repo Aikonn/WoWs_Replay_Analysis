@@ -37,6 +37,10 @@ def sample_row(match_id: str, processor_version: int = PROCESSOR_VERSION) -> dic
         "capture_points": 12,
         "defense_points": 4,
         "ribbons_json": "{}",
+        "replay_complete": 1,
+        "end_reason": "battle_end",
+        "recorded_s": 800.0,
+        "stats_source": "report",
     }
 
 
@@ -54,6 +58,37 @@ def test_connect_creates_database_and_schema(tmp_path: Path) -> None:
     assert database_path.is_file()
     assert "match_id" in columns
     assert "ribbons_json" in columns
+    assert {
+        "replay_complete",
+        "end_reason",
+        "recorded_s",
+        "stats_source",
+    }.issubset(columns)
+
+
+def test_connect_adds_incomplete_replay_columns_to_existing_database(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "existing.sqlite"
+    connection = sqlite3.connect(database_path)
+    connection.execute("CREATE TABLE matches (match_id TEXT PRIMARY KEY)")
+    connection.commit()
+    connection.close()
+
+    connection = database.connect(database_path)
+    try:
+        columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(matches)")
+        }
+    finally:
+        connection.close()
+
+    assert {
+        "replay_complete",
+        "end_reason",
+        "recorded_s",
+        "stats_source",
+    }.issubset(columns)
 
 
 def test_upsert_match_inserts_and_updates_row(tmp_path: Path) -> None:

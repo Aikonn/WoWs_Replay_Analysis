@@ -6,7 +6,7 @@ import pytest
 
 from wows_replay_analysis.process import PROCESSOR_VERSION
 from wows_replay_analysis.process.raw_loader import RawMatch
-from wows_replay_analysis.process.stats import match_stats_row
+from wows_replay_analysis.process.stats import match_stats_row, replay_end
 
 
 def make_raw(*, timeline: dict | None = None) -> RawMatch:
@@ -143,6 +143,10 @@ def test_match_stats_row_maps_report_and_timeline_fields() -> None:
         "ribbons_json": json.dumps(
             {"RIBBON_FRAG": 1, "RIBBON_HIT": 7}, sort_keys=True
         ),
+        "replay_complete": 1,
+        "end_reason": "battle_end",
+        "recorded_s": 600.25,
+        "stats_source": "report",
     }
 
 
@@ -151,8 +155,109 @@ def test_match_stats_row_uses_report_duration_without_timeline() -> None:
 
     assert row["duration_s"] == 1200.0
     assert row["time_of_death_s"] is None
+    assert row["recorded_s"] == 1200.0
 
 
-def test_match_stats_row_requires_report() -> None:
-    with pytest.raises(ValueError, match="report is missing"):
+def test_match_stats_row_requires_report_or_timeline() -> None:
+    with pytest.raises(ValueError, match="report and timeline are missing"):
         match_stats_row(RawMatch("match", {}, None, None))
+
+
+def test_replay_end_detects_complete_report_and_records_last_event_time() -> None:
+    raw = make_raw(
+        timeline={
+            "events": [
+                {"event_type": "PositionEvent", "timestamp": 10.0},
+                {"event_type": "BattleEndEvent", "timestamp": 600.5},
+            ]
+        }
+    )
+
+    assert replay_end(raw) == {
+        "replay_complete": True,
+        "end_reason": "battle_end",
+        "recorded_s": 600.5,
+    }
+
+
+def test_replay_end_distinguishes_left_after_death_and_disconnected() -> None:
+    report = make_raw().report
+    assert report is not None
+    report["hidden"].pop("battle_result")
+    timeline = {
+        "events": [
+            {"event_type": "DeathEvent", "victim_id": 200, "timestamp": 90.0},
+        ],
+        "state_snapshots": [
+            {"ships": {"200": {"is_alive": False, "health": 0}}}
+        ],
+    }
+    raw = make_raw(timeline=timeline)
+    raw.report = report
+    assert replay_end(raw)["end_reason"] == "left_after_death"
+
+    report["hidden"]["players"]["account"]["isAlive"] = True
+    timeline["events"] = []
+    timeline["state_snapshots"] = [
+        {"ships": {"200": {"is_alive": True, "health": 1}}}
+    ]
+    assert replay_end(raw)["end_reason"] == "disconnected"
+
+
+def test_incomplete_match_stats_fall_back_to_timeline() -> None:
+    report = make_raw().report
+    assert report is not None
+    report["hidden"].pop("battle_result")
+    report["hidden"].pop("battle_results_beta")
+    raw = make_raw(
+        timeline={
+            "meta": {"duration": 100.0},
+            "events": [
+                {
+                    "event_type": "DamageEvent",
+                    "attacker_id": 200,
+                    "target_id": 300,
+                    "damage": 125,
+                },
+                {
+                    "event_type": "DamageEvent",
+                    "attacker_id": 300,
+                    "target_id": 200,
+                    "damage": 75,
+                },
+                {"event_type": "DeathEvent", "victim_id": 200, "killer_id": 300, "timestamp": 90},
+                {"event_type": "DeathEvent", "victim_id": 301, "killer_id": 200, "timestamp": 80},
+                {"event_type": "DeathEvent", "victim_id": 301, "killer_id": 200, "timestamp": 80},
+                {
+                    "event_type": "DamageReceivedStatEvent",
+                    "entity_id": 200,
+                    "stat_type": "SPOT",
+                    "delta_total": 30,
+                },
+                {
+                    "event_type": "DamageReceivedStatEvent",
+                    "entity_id": 200,
+                    "stat_type": "AGRO",
+                    "delta_total": 1000,
+                },
+            ],
+            "state_snapshots": [
+                {"ships": {"200": {"is_alive": False, "health": 0}}}
+            ],
+        }
+    )
+    raw.report = report
+
+    row = match_stats_row(raw)
+
+    assert row["result"] == "unknown"
+    assert row["replay_complete"] == 0
+    assert row["end_reason"] == "left_after_death"
+    assert row["recorded_s"] == 90.0
+    assert row["duration_s"] == 100.0
+    assert row["damage"] == 125
+    assert row["damage_received"] == 75
+    assert row["frags"] == 1
+    assert row["spotting_damage"] == 30
+    assert row["potential_damage"] == 1000.0
+    assert row["stats_source"] == "timeline"

@@ -17,6 +17,13 @@ from wows_replay_analysis.process.stats import match_stats_row
 
 logger = logging.getLogger(__name__)
 
+MIGRATION_COLUMNS = {
+    "replay_complete": "INTEGER",
+    "end_reason": "TEXT",
+    "recorded_s": "REAL",
+    "stats_source": "TEXT",
+}
+
 # First version of the schema. Add columns rather than rename them, and bump
 # PROCESSOR_VERSION when it changes.
 SCHEMA = """
@@ -61,6 +68,12 @@ def connect(path: Path) -> sqlite3.Connection:
     connection.row_factory = sqlite3.Row
     try:
         connection.executescript(SCHEMA)
+        columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(matches)")
+        }
+        for name, definition in MIGRATION_COLUMNS.items():
+            if name not in columns:
+                connection.execute(f'ALTER TABLE matches ADD COLUMN "{name}" {definition}')
         connection.commit()
     except Exception:
         connection.close()

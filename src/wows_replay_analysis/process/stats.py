@@ -1,7 +1,7 @@
 """Turns one raw extract into the database row for the multi-match statistics.
 
-Built from the post-battle report (report.json); the timeline is only needed
-for values the report does not have (e.g. time of death).
+Built mainly from the post-battle report (report.json); incomplete replays use
+the timeline for estimates when report sections are not available.
 
 Incomplete replays: when the player leaves the battle after dying (common)
 or gets disconnected (rare), the replay stops early. It then has no battle
@@ -47,48 +47,91 @@ def replay_end(raw: RawMatch) -> dict:
     recorded_s is the battle time of the last timeline event (or the report
     duration when there is no timeline).
     """
-    raise NotImplementedError
+    report = raw.report if isinstance(raw.report, dict) else {}
+    hidden = report.get("hidden") if isinstance(report.get("hidden"), dict) else {}
+    battle_result = hidden.get("battle_result")
+    winner = battle_result.get("winner_team_id") if isinstance(battle_result, dict) else None
+    timeline = raw.timeline if isinstance(raw.timeline, dict) else None
+    events = timeline.get("events") if timeline else None
+    has_battle_end = isinstance(events, list) and any(
+        isinstance(event, dict) and event.get("event_type") == "BattleEndEvent"
+        for event in events
+    )
+    complete = (
+        isinstance(winner, int) and not isinstance(winner, bool)
+    ) or has_battle_end
+
+    timestamps = [
+        float(event["timestamp"])
+        for event in events or []
+        if isinstance(event, dict)
+        and isinstance(event.get("timestamp"), (int, float))
+        and not isinstance(event.get("timestamp"), bool)
+    ] if isinstance(events, list) else []
+    if timestamps:
+        recorded_s = max(timestamps)
+    elif timeline is None:
+        opened = report.get("open") if isinstance(report.get("open"), dict) else {}
+        recorded_s = _number(
+            opened.get("battleDuration", opened.get("duration")),
+            "report duration",
+            optional=True,
+        )
+    else:
+        recorded_s = None
+
+    if complete:
+        end_reason = "battle_end"
+    else:
+        ship_id, own_player = _recording_player(raw, hidden)
+        alive = _timeline_alive(timeline, ship_id)
+        if alive is None and own_player is not None:
+            alive = _boolean(own_player.get("isAlive"), "recording player's alive state")
+        end_reason = (
+            "left_after_death" if alive is False
+            else "disconnected" if alive is True
+            else "unknown"
+        )
+    return {
+        "replay_complete": complete,
+        "end_reason": end_reason,
+        "recorded_s": recorded_s,
+    }
 
 
 def match_stats_row(raw: RawMatch) -> dict:
     """Return one row for the `matches` table (columns in database.SCHEMA).
 
-    Ship name, class and tier come from the post-battle report
-    (battle_results_beta -> team_score), so GameParams is not needed.
+    Ship name, class and tier come from the post-battle report when available;
+    personal values missing from incomplete reports use timeline estimates.
     """
-    if raw.report is None:
-        raise ValueError(f"Cannot build statistics for {raw.match_id}: report is missing")
+    if raw.report is None and raw.timeline is None:
+        raise ValueError(f"Cannot build statistics for {raw.match_id}: report and timeline are missing")
 
-    report = raw.report
-    opened = _object(report.get("open"), "report.open")
-    hidden = _object(report.get("hidden"), "report.hidden")
-    players = _object(hidden.get("players"), "report.hidden.players")
-    avatar_id, ship_id = own_entity_ids(raw)
-    own_player = next(
-        (
-            player for player in players.values()
-            if isinstance(player, dict) and player.get("avatarId") == avatar_id
-        ),
-        None,
-    )
-    if own_player is None:
-        raise ValueError(f"Recording player {avatar_id} is missing from {raw.match_id}")
-
+    report = raw.report if isinstance(raw.report, dict) else {}
+    opened = report.get("open") if isinstance(report.get("open"), dict) else {}
+    hidden = report.get("hidden") if isinstance(report.get("hidden"), dict) else {}
     own_score = _own_score_row(hidden)
+    ship_id, own_player = _recording_player(raw, hidden)
+    if ship_id is None or own_player is None:
+        raise ValueError(f"Could not identify the recording player in {raw.match_id}")
+
     team_id = _integer(
-        own_score.get("team_id") if own_score else own_player.get("teamId"),
+        own_score.get("team_id") if own_score
+        else own_player.get("teamId", own_player.get("team_id")),
         "recording player's team id",
         optional=True,
     )
+    result_info = hidden.get("battle_result")
     winner_team_id = _integer(
-        _object(hidden.get("battle_result"), "report.hidden.battle_result").get(
-            "winner_team_id"
-        ),
+        result_info.get("winner_team_id") if isinstance(result_info, dict) else None,
         "winner team id",
         optional=True,
     )
-    result = _battle_result(winner_team_id, team_id)
-
+    end = replay_end(raw)
+    result = "unknown" if not end["replay_complete"] else _battle_result(winner_team_id, team_id)
+    if end["replay_complete"] and result is None:
+        result = _timeline_result(raw.timeline, team_id)
     personal = _section_data(hidden, "personal_score", "summary")
     details_damage = _section_data(hidden, "details", "damage_received")
     team_play = _section_data(hidden, "details", "team_play")
@@ -96,28 +139,78 @@ def match_stats_row(raw: RawMatch) -> dict:
     if not isinstance(timeline_meta, dict):
         timeline_meta = {}
 
-    played_at = _played_at(opened.get("dateTime"), raw.match_id)
+    header = raw.meta.get("header") if isinstance(raw.meta.get("header"), dict) else {}
+    played_at = _played_at(
+        opened.get("dateTime") or header.get("dateTime"), raw.match_id
+    )
     death_time = _time_of_death(raw.timeline, ship_id)
-    survived = _boolean(
-        own_score.get("is_alive") if own_score else own_player.get("isAlive"),
+    timeline_alive = _timeline_alive(raw.timeline, ship_id)
+    report_alive = _boolean(
+        own_score.get("is_alive") if own_score else own_player.get(
+            "isAlive", own_player.get("is_alive")
+        ),
         "recording player's alive state",
     )
-    ship_name = (
-        own_score.get("ship_name") if own_score else None
-    ) or opened.get("playerVehicle")
+    survived = (
+        timeline_alive if not end["replay_complete"] and timeline_alive is not None
+        else report_alive if report_alive is not None
+        else timeline_alive
+    )
+    timeline_stats = _timeline_personal_stats(raw.timeline, ship_id)
+    used_timeline = not end["replay_complete"]
+
+    def report_or_timeline(value: object, key: str) -> object:
+        nonlocal used_timeline
+        if not end["replay_complete"]:
+            return timeline_stats.get(key)
+        if value is not None:
+            return value
+        fallback = timeline_stats.get(key)
+        if fallback is not None:
+            used_timeline = True
+        return fallback
+
+    base_xp = None
+    planes_killed = None
+    if end["replay_complete"]:
+        base_xp = (
+            personal.get("base_exp")
+            if personal.get("base_exp") is not None
+            else own_score.get("exp") if own_score else None
+        )
+        planes_killed = (
+            personal.get("planes_killed")
+            if personal.get("planes_killed") is not None
+            else own_score.get("planes_killed") if own_score
+            else own_player.get("planesCount")
+        )
+
+    ship_name = (own_score.get("ship_name") if own_score else None) or (
+        own_player.get("ship") or opened.get("playerVehicle")
+    )
 
     ribbons = _section_value(hidden, "personal_score", "ribbons")
     ribbons_json = json.dumps(_ribbon_counts(ribbons), ensure_ascii=False, sort_keys=True)
+    duration = (
+        timeline_meta.get("duration")
+        if timeline_meta.get("duration") is not None
+        else end["recorded_s"]
+    )
+    if duration is None:
+        duration = opened.get("battleDuration", opened.get("duration"))
 
     row = {
         "match_id": raw.match_id,
         "processor_version": PROCESSOR_VERSION,
         "played_at": played_at,
-        "game_version": raw.meta.get("game_version") or opened.get("clientVersionFromXml"),
-        "map_name": opened.get("mapDisplayName") or opened.get("mapName") or hidden.get("map"),
+        "game_version": raw.meta.get("game_version") or opened.get("clientVersionFromXml")
+        or header.get("clientVersionFromXml"),
+        "map_name": opened.get("mapDisplayName") or opened.get("mapName")
+        or hidden.get("map") or header.get("mapDisplayName") or header.get("mapName"),
         "match_group": opened.get("matchGroup"),
         "scenario": opened.get("scenario"),
-        "player_name": own_player.get("name") or opened.get("playerName"),
+        "player_name": own_player.get("name") or opened.get("playerName")
+        or header.get("playerName"),
         "ship_name": ship_name,
         "ship_class": own_score.get("ship_type") if own_score else None,
         "ship_tier": _integer(
@@ -126,59 +219,241 @@ def match_stats_row(raw: RawMatch) -> dict:
             optional=True,
         ),
         "result": result,
-        "duration_s": _number(
-            timeline_meta.get("duration")
-            if timeline_meta.get("duration") is not None
-            else opened.get("battleDuration", opened.get("duration")),
-            "match duration",
-            optional=True,
-        ),
+        "duration_s": _number(duration, "match duration", optional=True),
         "survived": None if survived is None else int(survived),
         "time_of_death_s": death_time,
-        "damage": _integer(personal.get("damage"), "damage", optional=True),
-        "frags": _integer(
-            personal.get("frags") if personal.get("frags") is not None
-            else own_score.get("frags") if own_score else own_player.get("fragsCount"),
-            "frags",
+        "damage": _integer(
+            report_or_timeline(personal.get("damage"), "damage"),
+            "damage",
             optional=True,
         ),
         "spotting_damage": _integer(
-            team_play.get("spotting_damage"), "spotting damage", optional=True
+            report_or_timeline(team_play.get("spotting_damage"), "spotting_damage"),
+            "spotting damage",
+            optional=True,
         ),
         "potential_damage": _number(
-            personal.get("potential_damage"), "potential damage", optional=True
+            report_or_timeline(personal.get("potential_damage"), "potential_damage"),
+            "potential damage",
+            optional=True,
         ),
         "damage_received": _integer(
-            details_damage.get("total"), "damage received", optional=True
+            report_or_timeline(details_damage.get("total"), "damage_received"),
+            "damage received",
+            optional=True,
+        ),
+        "frags": _integer(
+            report_or_timeline(
+                personal.get("frags") if personal.get("frags") is not None
+                else own_score.get("frags") if own_score
+                else own_player.get("fragsCount"),
+                "frags",
+            ),
+            "frags",
+            optional=True,
         ),
         "base_xp": _integer(
-            personal.get("base_exp") if personal.get("base_exp") is not None
-            else own_score.get("exp") if own_score else None,
+            base_xp,
             "base XP",
             optional=True,
         ),
         "planes_killed": _integer(
-            personal.get("planes_killed") if personal.get("planes_killed") is not None
-            else own_score.get("planes_killed") if own_score else own_player.get("planesCount"),
+            planes_killed,
             "planes killed",
             optional=True,
         ),
         "capture_points": _integer(
-            team_play.get("capture_points"), "capture points", optional=True
+            team_play.get("capture_points") if end["replay_complete"] else None,
+            "capture points",
+            optional=True,
         ),
         "defense_points": _integer(
-            team_play.get("defense_points"), "defense points", optional=True
+            team_play.get("defense_points") if end["replay_complete"] else None,
+            "defense points",
+            optional=True,
         ),
         "ribbons_json": ribbons_json,
+        "replay_complete": int(end["replay_complete"]),
+        "end_reason": end["end_reason"],
+        "recorded_s": end["recorded_s"],
+        "stats_source": "timeline" if used_timeline else "report",
     }
     logger.debug("Built statistics row for %s", raw.match_id)
     return row
 
 
-def _object(value: object, label: str) -> dict:
-    if not isinstance(value, dict):
-        raise ValueError(f"Expected an object for {label}")
-    return value
+def _recording_player(raw: RawMatch, hidden: dict) -> tuple[int | None, dict | None]:
+    report_players = hidden.get("players")
+    if isinstance(report_players, dict):
+        entries = list(report_players.values())
+    elif isinstance(report_players, list):
+        entries = report_players
+    else:
+        entries = []
+
+    avatar_id = hidden.get("player_id")
+    own_player = next(
+        (
+            player for player in entries
+            if isinstance(player, dict) and player.get("avatarId") == avatar_id
+        ),
+        None,
+    )
+    ship_id = _integer_id(own_player.get("shipId")) if own_player else None
+    if ship_id is None and raw.report is not None:
+        try:
+            _, ship_id = own_entity_ids(raw)
+        except ValueError:
+            pass
+
+    report = raw.report if isinstance(raw.report, dict) else {}
+    opened = report.get("open") if isinstance(report.get("open"), dict) else {}
+    header = raw.meta.get("header") if isinstance(raw.meta.get("header"), dict) else {}
+    name = opened.get("playerName") or header.get("playerName")
+    timeline_players = raw.timeline.get("players") if isinstance(raw.timeline, dict) else None
+    timeline_players = timeline_players if isinstance(timeline_players, list) else []
+    timeline_player = next(
+        (
+            player for player in timeline_players
+            if isinstance(player, dict)
+            and (
+                _integer_id(player.get("entity_id")) == ship_id
+                if ship_id is not None
+                else isinstance(name, str) and player.get("name") == name
+            )
+        ),
+        None,
+    )
+    if own_player is None and timeline_player is not None:
+        own_player = {
+            "name": timeline_player.get("name"),
+            "team_id": timeline_player.get("team_id"),
+            "ship": timeline_player.get("ship"),
+        }
+    elif own_player is not None and timeline_player is not None:
+        own_player = {
+            **timeline_player,
+            **own_player,
+            "team_id": own_player.get("teamId", timeline_player.get("team_id")),
+        }
+    if ship_id is None and timeline_player is not None:
+        ship_id = _integer_id(timeline_player.get("entity_id"))
+    return ship_id, own_player
+
+
+def _timeline_alive(timeline: dict | None, ship_id: int | None) -> bool | None:
+    if not isinstance(timeline, dict) or ship_id is None:
+        return None
+    events = timeline.get("events")
+    if isinstance(events, list) and any(
+        isinstance(event, dict)
+        and event.get("event_type") == "DeathEvent"
+        and _integer_id(event.get("victim_id", event.get("entity_id"))) == ship_id
+        for event in events
+    ):
+        return False
+    snapshots = timeline.get("state_snapshots")
+    if not isinstance(snapshots, list):
+        return None
+    for snapshot in reversed(snapshots):
+        ships = snapshot.get("ships") if isinstance(snapshot, dict) else None
+        state = ships.get(str(ship_id), ships.get(ship_id)) if isinstance(ships, dict) else None
+        if not isinstance(state, dict):
+            continue
+        alive = state.get("is_alive")
+        if isinstance(alive, bool):
+            return alive
+        health = state.get("health")
+        if isinstance(health, Real) and not isinstance(health, bool):
+            return health > 0
+    return None
+
+
+def _timeline_personal_stats(timeline: dict | None, ship_id: int) -> dict[str, int | float]:
+    if not isinstance(timeline, dict):
+        return {}
+    events = timeline.get("events")
+    if not isinstance(events, list):
+        return {}
+
+    damage_dealt = 0.0
+    damage_received = 0.0
+    frag_victims: set[int] = set()
+    spotted = 0.0
+    potential = 0.0
+    has_damage_events = False
+    has_ship_stat_events = False
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        event_type = event.get("event_type")
+        if event_type == "DamageEvent":
+            damage = _number(event.get("damage"), "timeline damage", optional=True)
+            if damage is None:
+                continue
+            has_damage_events = True
+            if _integer_id(event.get("attacker_id")) == ship_id:
+                damage_dealt += damage
+            if _integer_id(event.get("target_id", event.get("entity_id"))) == ship_id:
+                damage_received += damage
+        elif event_type == "DeathEvent":
+            if _integer_id(event.get("killer_id")) == ship_id:
+                victim_id = _integer_id(event.get("victim_id", event.get("entity_id")))
+                if victim_id is not None:
+                    frag_victims.add(victim_id)
+        elif (
+            event_type == "DamageReceivedStatEvent"
+            and _integer_id(event.get("entity_id")) == ship_id
+        ):
+            stat_type = event.get("stat_type")
+            delta = _number(event.get("delta_total"), "timeline damage statistic", optional=True)
+            if delta is None:
+                continue
+            has_ship_stat_events = True
+            if stat_type == "SPOT":
+                spotted += delta
+            elif stat_type == "AGRO":
+                potential += delta
+
+    stats: dict[str, int | float] = {"frags": len(frag_victims)}
+    if has_damage_events:
+        stats.update({
+            "damage": int(round(damage_dealt)),
+            "damage_received": int(round(damage_received)),
+        })
+    if has_ship_stat_events:
+        stats.update({
+            "spotting_damage": int(round(spotted)),
+            "potential_damage": round(potential, 1),
+        })
+    return stats
+
+
+def _timeline_result(timeline: dict | None, own_team: int | None) -> str | None:
+    if not isinstance(timeline, dict) or own_team is None:
+        return None
+    snapshots = timeline.get("state_snapshots")
+    if not isinstance(snapshots, list):
+        return None
+    for snapshot in reversed(snapshots):
+        battle = snapshot.get("battle") if isinstance(snapshot, dict) else None
+        scores = battle.get("team_scores") if isinstance(battle, dict) else None
+        if not isinstance(scores, dict):
+            continue
+        parsed = {
+            team: _number(score, "team score", optional=True)
+            for key, score in scores.items()
+            if (team := _integer_id(key)) is not None
+        }
+        parsed = {team: score for team, score in parsed.items() if score is not None}
+        if own_team not in parsed or len(parsed) < 2:
+            continue
+        highest = max(parsed.values())
+        winners = [team for team, score in parsed.items() if score == highest]
+        if len(winners) != 1:
+            return "draw"
+        return "win" if winners[0] == own_team else "loss"
+    return None
 
 
 def _section_data(hidden: dict, tab_name: str, section_name: str) -> dict:
@@ -233,6 +508,16 @@ def _integer(value: object, label: str, *, optional: bool) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"Invalid {label}: {value!r}")
     return value
+
+
+def _integer_id(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
 
 
 def _number(value: object, label: str, *, optional: bool) -> float | None:

@@ -259,10 +259,16 @@ def test_build_match_summary_is_useful_without_report() -> None:
     summary = build_match_summary(make_raw(timeline=timeline_data()))
 
     assert summary["match"]["map"] == "23_Shards"
+    assert summary["match"]["result"] == "unknown"
+    assert summary["match"]["replay_complete"] == 0
+    assert summary["match"]["end_reason"] == "left_after_death"
+    assert summary["match"]["recorded_s"] == 45.0
+    assert summary["match"]["note"] == "Events after recorded_s are unknown."
     assert summary["me"]["player"] == "Captain"
     assert summary["me"]["damage"] == 40
     assert summary["me"]["damage_received"] == 50
     assert summary["me"]["survived"] is False
+    assert summary["me"]["stats_source"] == "timeline"
     assert summary["teams"]["enemies"][0]["player"] == "Enemy"
     assert summary["timeline"]
 
