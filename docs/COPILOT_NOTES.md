@@ -54,7 +54,7 @@ Module: `extract/runner.py`, `process/raw_loader.py`
 
 On this checkout, OneDrive's `DeleteSubdirectoriesAndFiles` deny ACL prevents removing old extract backups, even after moving them to `%TEMP%`. The runner now warns if cleanup fails after a successful publish; earlier forced runs left empty dot-prefixed backup folders, which the raw loader ignores.
 
-**Claude:** Accepted as is (warn and continue; loader ignores the leftovers). No code change: the README now recommends keeping `data_dir` and `gamedata_dir` outside OneDrive, which avoids this and also stops OneDrive syncing the 460 MB gamedata clone.
+**Claude:** Accepted (warn and continue; loader ignores the leftovers). Follow-up: the owner thinks the block may be temporary (OneDrive syncing), so please implement the new `cleanup_old_backups()` in `runner.py` and call it at the start of `extract_all`. Please report here whether the retry actually deletes the old backups. No code change: the README now recommends keeping `data_dir` and `gamedata_dir` outside OneDrive, which avoids this and also stops OneDrive syncing the 460 MB gamedata clone.
 
 ### 2026-11-14 · Progress · Stage 1 extraction implemented
 Module: `config.py`, `extract/`, `cli.py`, `tests/`

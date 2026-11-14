@@ -204,8 +204,27 @@ def write_meta(match_dir: Path, replay_path: Path, header: dict, errors: dict[st
     _write_json_atomic(match_dir / "meta.json", meta)
 
 
+def cleanup_old_backups(raw_dir: Path) -> int:
+    """Try to delete leftover extract backups from earlier runs.
+
+    _publish_extract leaves `.<match_id>.backup-<hex>` folders behind when it
+    can't delete them (OneDrive sometimes blocks the delete, possibly only
+    while it is syncing). Look for them in raw_dir and in the system temp
+    folder (tempfile.gettempdir()), and only match that exact name pattern.
+    Delete each one with shutil.rmtree; if that fails, log one DEBUG line per
+    folder and carry on. Never touch anything else.
+
+    Return the number of folders deleted. Log one INFO line with the count
+    deleted and the count still left when either is non-zero.
+    """
+    raise NotImplementedError
+
+
 def extract_all(config: Config, force: bool = False) -> ExtractResult:
     """Extract every replay that needs it (or all of them when force=True).
+
+    Call cleanup_old_backups(raw_dir) first; a failure there must never
+    stop the run.
 
     One failing replay must not stop the run: log it and continue.
     """

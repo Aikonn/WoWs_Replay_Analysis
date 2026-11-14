@@ -106,7 +106,7 @@ The first extraction clones the gamedata repo (about 460 MB) into `cache/`.
 folders (for example `C:/WoWs_Replay_Data/data` and `C:/WoWs_Replay_Data/cache`).
 OneDrive can block deleting old extract backups, and syncing a 460 MB git
 clone wastes bandwidth. Leftover hidden `.<match_id>.backup-*` folders are
-harmless and can be deleted by hand.
+harmless; each extract run tries to delete them again.
 
 ## Usage
 
