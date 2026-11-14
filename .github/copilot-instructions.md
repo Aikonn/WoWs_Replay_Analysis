@@ -78,8 +78,13 @@ real level of comments:
   release of replays_unpack does not support current game versions.
 - replays_unpack: the `ReplayParser` class is not in the installed package.
   See the docstring of `extract/report_parser.py` for the replacement.
-- wows-replay-parser: run its `wowsreplay export` CLI as a subprocess. It needs
-  the gamedata clone checked out at the tag that matches the replay's build.
+- wows-replay-parser: run its export CLI as a subprocess. It needs the gamedata
+  clone checked out at the tag that matches the replay's build.
+  `python -m wows_replay_parser.cli` does nothing (no `__main__` entry point);
+  call it as `sys.executable -c "from wows_replay_parser.cli import main; main()" export ...`.
+- Parser log noise: replays_unpack logs many unknown-packet INFO lines and
+  short-`shipConfigDump` warnings. They are not errors. The CLI keeps parser
+  loggers at ERROR unless `--verbose` (see `cli.quiet_parser_logs`).
 - In the post-battle report, `hidden.player_id` is the recording player's
   avatar entity id. Their ship entity id (used in timeline events) is the
   `shipId` of the player entry whose `avatarId` equals `player_id`.

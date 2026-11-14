@@ -1,6 +1,7 @@
 """Wrapper around toalba/wows-replay-parser (event timeline).
 
-The export logic lives in its CLI, so run it as a subprocess:
+The export logic lives in its CLI, so run it as a subprocess (shown here as
+the `wowsreplay` script; see export_timeline for how it is actually invoked):
 
     wowsreplay export <replay> --gamedata <gamedata_dir>/data/scripts_entity/entity_defs
                       -o <tmp.json> --snapshot-interval <seconds>
@@ -31,9 +32,13 @@ def export_timeline(replay_path: Path, entity_defs_dir: Path, output_gz: Path,
                     snapshot_interval: float = 5.0) -> None:
     """Run `wowsreplay export` and write the result gzip-compressed to output_gz.
 
-    Use sys.executable -m wows_replay_parser.cli (or the wowsreplay script from
-    the same environment) so it works inside a virtualenv on Windows.
-    Raise an exception with the parser's stderr if it fails.
+    The parser runs in a subprocess with the same interpreter (sys.executable),
+    so it works inside a virtualenv on Windows. `python -m wows_replay_parser.cli`
+    does NOT work: that module defines main() but has no `__main__` entry point,
+    so it exits without exporting. Instead it runs
+    `sys.executable -c "from wows_replay_parser.cli import main; main()" export ...`.
+    Its stdout/stderr are captured, so the parser's own log noise stays out of
+    the console. Raise an exception with the parser's stderr if it fails.
     """
     output_gz.parent.mkdir(parents=True, exist_ok=True)
     json_fd, json_name = tempfile.mkstemp(

@@ -59,8 +59,36 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# Logger names used by the replay parsers that run in this process.
+# replays_unpack runs in-process; wows-replay-parser runs as a subprocess with
+# captured output, so only replays_unpack needs quieting here.
+PARSER_LOGGERS: tuple[str, ...] = ("replay_unpack",)
+
+
+def quiet_parser_logs(verbose: bool) -> None:
+    """Keep third-party parser logging out of the console unless --verbose.
+
+    replays_unpack logs an INFO line for every unknown packet and a WARNING for
+    each short shipConfigDump (about 48 per replay). None of these are
+    extraction errors, so in normal mode set the parser loggers in
+    PARSER_LOGGERS to ERROR. With verbose=True leave them at DEBUG.
+
+    Check which logger names replays_unpack really uses (some modules may log
+    through the root logger via `logging.info(...)`); if so, add a
+    logging.Filter on the root handler that drops records below ERROR whose
+    `pathname` is inside the replay_unpack package. Update PARSER_LOGGERS to
+    the real names.
+
+    Real failures still reach the user: they raise, and runner records them in
+    meta.json `errors` and the run summary.
+    """
+    raise NotImplementedError
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point. Parse arguments, load the config, set up logging and dispatch.
+
+    After logging.basicConfig, call quiet_parser_logs(args.verbose).
 
     Returns the process exit code (0 = success). Errors on individual replays
     must be logged and counted, not abort the whole run.

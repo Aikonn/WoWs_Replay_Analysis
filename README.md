@@ -43,7 +43,7 @@ The tool works in three stages.
 
 ## Replay parsers
 
-Evaluated on 2026-11-14 with two real replays from game version 15.10.0 (build 13533378). Both parsers worked, and each took about 5 seconds per replay. They complement each other, so the tool uses both.
+Evaluated on 2026-11-14 with two real replays from game version 15.10.0 (build 13533378). Both parsers worked, and each took about 5 seconds per replay. The finished Stage 1 extraction (both parsers, compression, metadata) takes about 7 seconds per replay; the two test timelines held 111,057 and 91,981 events. They complement each other, so the tool uses both.
 
 ### Monstrofil/replays_unpack: post-battle report
 
@@ -51,6 +51,7 @@ Evaluated on 2026-11-14 with two real replays from game version 15.10.0 (build 1
 - Gives the full **post-battle screen** with named fields: damage dealt and received by weapon type, spotting damage, potential damage, ribbons, kills, XP and credits.
 - Also gives a damage map (who damaged whom), death info (killer and weapon), every player's ship, clan and captain skills, and the battle result.
 - **No timeline:** no positions, and no information about when things happened.
+- Logs a lot of harmless noise (unknown-packet INFO lines, about 48 short-`shipConfigDump` warnings per replay). The CLI hides parser logs below ERROR unless you pass `--verbose`.
 - Supports every game version from 0.8.0 onward. CI adds new versions automatically when a patch ships.
 - **Install from GitHub, not PyPI.** The PyPI release (3.4.2) only supports up to 14.8.0. Needs `pycryptodomex` and `lxml`.
 
@@ -63,7 +64,9 @@ Evaluated on 2026-11-14 with two real replays from game version 15.10.0 (build 1
 - Its end-of-battle results are an undecoded raw data blob. Use replays_unpack for those.
 - Needs the **gamedata repo** https://github.com/toalba/wows-render-gamedata (about 460 MB). Check out the tag that matches the replay's build (`v<build_id>`, e.g. `v13533378`).
 - Requires Python 3.11+. It has a single maintainer, which is a risk to keep in mind.
-- CLI used: `wowsreplay export <replay> --gamedata <gamedata>/data/scripts_entity/entity_defs -o <out.json>`
+- CLI used: `wowsreplay export <replay> --gamedata <gamedata>/data/scripts_entity/entity_defs -o <out.json>`.
+  The tool calls it as `python -c "from wows_replay_parser.cli import main; main()" export ...`
+  with the same interpreter, because `python -m wows_replay_parser.cli` has no entry point and does nothing.
 
 ### Not used
 
