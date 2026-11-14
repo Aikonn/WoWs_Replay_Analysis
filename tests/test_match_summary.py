@@ -223,7 +223,9 @@ def make_raw(*, report: dict | None = None, timeline: dict | None = None) -> Raw
 
 
 def test_build_match_summary_combines_report_and_timeline_compactly() -> None:
-    summary = build_match_summary(make_raw(report=report_data(), timeline=timeline_data()))
+    timeline = timeline_data()
+    timeline["players"][1]["ship"] = "PHSB710_Willem_de_Eerste"
+    summary = build_match_summary(make_raw(report=report_data(), timeline=timeline))
 
     assert summary["processor_version"] == PROCESSOR_VERSION
     assert summary["match"]["result"] == "loss"
@@ -244,6 +246,7 @@ def test_build_match_summary_combines_report_and_timeline_compactly() -> None:
     assert summary["teams"]["enemies"][0]["ship_id"] == "Enemy Ship"
     assert [sample["time_s"] for sample in summary["timeline"]] == [0, 30, 60]
     assert summary["timeline"][0]["nearest_enemies"][0]["distance_km"] == 0.2
+    assert summary["timeline"][0]["nearest_enemies"][0]["ship"] == "Willem de Eerste"
     assert summary["timeline"][0]["heading"] == 86
     assert "max_health" not in summary["timeline"][0]
     assert summary["me"]["max_health"] == 10

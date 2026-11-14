@@ -41,6 +41,7 @@ Source mapping decisions (2026-11-14, after the first real run):
   at the end, final team scores, duration vs the battle time limit), not from
   guessed victory_type codes.
 - Timeline samples keep the 3 nearest enemies, each with a `visible` flag.
+  Their `ship` labels use readable names; `ship_id` remains internal.
 - Incomplete replays (player left after dying, or disconnected): add
   match.replay_complete, match.end_reason and match.recorded_s from
   stats.replay_end(); result "unknown", decided_by null. Fill `me` from the
@@ -76,7 +77,8 @@ root causes and the verified numbers):
 - events: kill events from combat.deduplicate_deaths() (one per victim),
   with `death_reason` kept as a number. damage_summary windows from
   combat.damage_windows() with damage_dealt, damage_taken and healed; the
-  window with my death ends at the time of death.
+  window with my death ends at the time of death, and my damage dealt after
+  death is kept in windows marked `after_death`.
 - teams[].damage_timeline (incomplete replays only) from
   combat.damage_dealt_by_ship() (now includes killing blows; an estimate).
 - timeline samples: nearest enemies get `distance_km`
@@ -933,9 +935,12 @@ def _build_timeline(
                     + (position[2] - own_position[2]) ** 2
                 )
                 player = players_by_id[enemy_id]
+                ship_id = player.get("ship_id") or player.get("ship")
                 nearest.append({
                     "player": player.get("name"),
-                    "ship": player.get("ship"),
+                    "ship": readable_ship_name(
+                        ship_id if isinstance(ship_id, str) else None
+                    ),
                     "distance_km": world_to_km(distance),
                     "visible": state.get("is_detected"),
                 })

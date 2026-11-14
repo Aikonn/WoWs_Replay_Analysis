@@ -320,15 +320,12 @@ def damage_windows(
         ),
         None,
     )
-    limit = _number(end_s)
-    if death_s is not None:
-        limit = min(limit, death_s) if limit is not None else death_s
+    by_window: dict[tuple[int, bool], dict[str, float]] = {}
 
-    by_window: dict[int, dict[str, float]] = {}
-
-    def window_index(timestamp: float) -> int:
+    def window_index(timestamp: float, after_death: bool) -> int:
         if (
-            death_s is not None
+            not after_death
+            and death_s is not None
             and timestamp == death_s
             and timestamp > 0
             and timestamp % window_s == 0
@@ -336,15 +333,31 @@ def damage_windows(
             return int(timestamp // window_s) - 1
         return int(timestamp // window_s)
 
+    limit = _number(end_s)
+    if limit is None:
+        limit = max(
+            (
+                battle_time(timestamp, start_s)
+                for event in events
+                if isinstance(event, dict)
+                and (timestamp := _number(event.get("timestamp"))) is not None
+            ),
+            default=0.0,
+        )
+
     def add(timestamp: float, key: str, amount: float) -> None:
         battle_timestamp = battle_time(timestamp, start_s)
-        if battle_timestamp < 0 or (limit is not None and battle_timestamp > limit):
+        if battle_timestamp < 0 or battle_timestamp > limit:
             return
-        index = window_index(battle_timestamp)
+        after_death = death_s is not None and battle_timestamp > death_s
+        if after_death and key != "damage_dealt":
+            return
+        index = window_index(battle_timestamp, after_death)
         if index < 0:
             return
+        window_key = (index, after_death)
         totals = by_window.setdefault(
-            index, {"damage_dealt": 0.0, "damage_taken": 0.0, "healed": 0.0}
+            window_key, {"damage_dealt": 0.0, "damage_taken": 0.0, "healed": 0.0}
         )
         totals[key] += amount
 
@@ -370,31 +383,27 @@ def damage_windows(
         if blow["killer_id"] == ship_id and blow["time_s"] is not None:
             add(blow["time_s"], "damage_dealt", blow["damage"])
 
-    if limit is None:
-        last_times = [
-            battle_time(timestamp, start_s)
-            for event in events
-            if isinstance(event, dict)
-            and (timestamp := _number(event.get("timestamp"))) is not None
-        ]
-        limit = max(last_times, default=0.0)
-
     windows: list[dict] = []
-    for index in sorted(by_window):
-        totals = by_window[index]
+    for index, after_death in sorted(by_window):
+        totals = by_window[(index, after_death)]
         if not any(totals.values()):
             continue
         window_start = index * window_s
         window_end = min(window_start + window_s, limit)
-        if death_s is not None:
+        if after_death and death_s is not None:
+            window_start = max(window_start, death_s)
+        elif death_s is not None:
             window_end = min(window_end, death_s)
         if window_end < window_start:
             continue
-        windows.append({
+        window = {
             "start_s": round(window_start, 1),
             "end_s": round(window_end, 1),
             **{key: round(value, 1) for key, value in totals.items()},
-        })
+        }
+        if after_death:
+            window["after_death"] = True
+        windows.append(window)
     return windows
 
 
@@ -598,6 +607,21 @@ def check_damage_consistency(summary: dict) -> list[str]:
                 problems.append(
                     f"damage_summary damage_taken differs from damage_received "
                     f"({taken:g} vs {received:g})"
+                )
+
+        complete = (
+            match.get("replay_complete") == 1
+            or match.get("replay_complete") is True
+        )
+        damage = _number(me.get("damage"))
+        if complete and damage is not None:
+            dealt = sum(
+                _number(event.get("damage_dealt")) or 0.0 for event in windows
+            )
+            if abs(dealt - damage) > abs(damage) * 0.02:
+                problems.append(
+                    f"damage_summary damage_dealt differs from damage "
+                    f"({dealt:g} vs {damage:g}; over 2%)"
                 )
 
         kills = [

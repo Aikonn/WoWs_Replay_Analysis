@@ -154,6 +154,31 @@ def test_damage_windows_include_death_and_stop_at_its_time() -> None:
     assert all(window["start_s"] < 65 for window in windows)
 
 
+def test_damage_windows_keep_damage_dealt_after_death() -> None:
+    timeline = _combat_timeline()
+    timeline["events"].append({
+        "event_type": "DamageEvent",
+        "attacker_id": 1,
+        "target_id": 2,
+        "damage": 80,
+        "timestamp": 70,
+    })
+
+    windows = damage_windows(timeline, 1, end_s=100)
+    after_death = [window for window in windows if window.get("after_death")]
+
+    assert len(after_death) == 1
+    assert after_death[0] == {
+        "start_s": 65.0,
+        "end_s": 90.0,
+        "damage_dealt": 80.0,
+        "damage_taken": 0.0,
+        "healed": 0.0,
+        "after_death": True,
+    }
+    assert sum(window["damage_dealt"] for window in windows) == 120.0
+
+
 def test_damage_windows_are_anchored_to_battle_time() -> None:
     timeline = _combat_timeline()
     start_s = 32.35
@@ -214,3 +239,17 @@ def test_check_damage_consistency_reports_each_problem() -> None:
     assert any("time_of_death_s" in problem for problem in problems)
     assert any("duplicate victims" in problem for problem in problems)
     assert any("me.frags" in problem for problem in problems)
+
+
+def test_check_damage_consistency_flags_damage_windows_over_two_percent_off() -> None:
+    summary = {
+        "match": {"replay_complete": 1},
+        "me": {"damage": 1000},
+        "events": [{"type": "damage_summary", "damage_dealt": 970}],
+    }
+
+    problems = check_damage_consistency(summary)
+
+    assert len(problems) == 1
+    assert "damage_summary damage_dealt" in problems[0]
+    assert "over 2%" in problems[0]

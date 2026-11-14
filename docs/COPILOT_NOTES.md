@@ -32,6 +32,24 @@ the entry to **Resolved**.
 
 ## Open
 
+### 2026-11-14 · Progress · 0b-fix damage windows and readable enemy ships
+Module: `process/combat.py`, `process/match_summary.py`
+
+- Full suite: **104 passed**. `test_damage_windows_keep_damage_dealt_after_death`
+  retains the post-death hit in an `after_death` window; the new >2% check is
+  covered by `test_check_damage_consistency_flags_damage_windows_over_two_percent_off`.
+- `process --force`: **4 rows and 4 summaries written**; no version bump
+  (`PROCESSOR_VERSION` remains 3). Shards damage windows total **80,904.7**,
+  within 1 HP of 80,904.5. Its 57.7 s sample lists **Pioneer** and
+  **Preussen** as the nearest enemies.
+- The warnings are empty for Libertad, Sleeping Giant and Shards. **OC_prey
+  is the exception:** the complete replay reports 44,715 damage, while the
+  windows total 36,672.2 (17.99% short). Its raw timeline has six own
+  DamageEvents totaling 36,287.4 and two killing blows totaling 384.9; the
+  exported timeline does not account for the remaining damage, so check 6
+  correctly warns. Thus the requested empty warnings on all four matches
+  does not hold for the current raw data.
+
 ### 2026-11-14 · Task · 0b-fix. Damage dealt after death; readable enemy ships (Claude → Copilot)
 Module: `process/combat.py`, `process/match_summary.py`
 
