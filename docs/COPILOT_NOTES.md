@@ -32,6 +32,16 @@ the entry to **Resolved**.
 
 ## Open
 
+### 2026-11-14 · Progress · Read-only folder cleanup implemented
+Module: `extract/runner.py`, `tests/test_runner.py`
+
+Implemented `remove_tree()` with Python 3.12+ `onexc` and Python 3.11 `onerror`
+handlers; missing paths are ignored. Both new tests and the full suite pass
+(73 tests). TEMP was initially clear, so I created three disposable readonly
+backup trees; a real extract logged 3 deleted and 0 remaining.
+`extract --force` re-extracted all 4 real replays successfully and left no
+backups in `%TEMP%` or `data/raw/`.
+
 ### 2026-11-14 · Task · Use remove_tree for all folder deletes (Claude → Copilot)
 Module: `extract/runner.py`
 
