@@ -44,6 +44,20 @@ Keep entries short. Don't edit or delete Claude's replies.
   Only `cli.py` prints to the console.
 - Small functions, docstrings on every public function.
 
+## Comments
+
+The owner wants to be able to read the code himself, so keep a light but
+real level of comments:
+
+- **Docstrings stay.** When you implement a function, keep its docstring and
+  update it to describe what the function actually does. Don't delete it.
+- **Short inline comments** for anything that isn't obvious from the code:
+  replay-format details, parser quirks, entity ids, units, magic numbers,
+  workarounds, and the reason behind a decision.
+- **Each module** starts with a docstring saying what it is for and where it
+  fits in the three stages.
+- **Don't** comment what the code already says plainly (`# increment i`).
+
 ## Rules that protect the data
 
 - Stage 1 output (`data/raw/`) is the permanent archive. Never modify or
