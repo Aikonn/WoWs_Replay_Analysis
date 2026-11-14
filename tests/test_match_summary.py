@@ -10,6 +10,8 @@ from wows_replay_analysis.process import PROCESSOR_VERSION
 from wows_replay_analysis.process.match_summary import (
     build_all_summaries,
     build_match_summary,
+    decided_by,
+    readable_ship_name,
     write_match_summary,
 )
 from wows_replay_analysis.process.raw_loader import RawMatch
@@ -217,13 +219,21 @@ def test_build_match_summary_combines_report_and_timeline_compactly() -> None:
 
     assert summary["processor_version"] == PROCESSOR_VERSION
     assert summary["match"]["result"] == "loss"
+    assert summary["match"]["decided_by"] == "all_allies_destroyed"
     assert summary["match"]["map"] == "Shards"
     assert summary["me"]["player"] == "Captain"
-    assert summary["me"]["ship"] == {"name": "Ship Name", "class": "Cruiser", "tier": 8}
+    assert summary["me"]["ship"] == {
+        "name": "Ship Name",
+        "ship_id": "Ship Name",
+        "class": "Cruiser",
+        "tier": 8,
+    }
     assert summary["me"]["killed_by"]["weapon"] == "TORPEDO"
     assert summary["me"]["ribbons"] == {"RIBBON_HIT": 4}
     assert summary["teams"]["allies"][0]["damage"] == 100
-    assert summary["teams"]["enemies"][0]["damage"] == 50
+    assert summary["teams"]["enemies"][0]["damage_timeline"] == 50
+    assert "damage" not in summary["teams"]["enemies"][0]
+    assert summary["teams"]["enemies"][0]["ship_id"] == "Enemy Ship"
     assert [sample["time_s"] for sample in summary["timeline"]] == [0, 30, 60]
     assert summary["timeline"][0]["nearest_enemies"][0]["distance_m"] == 5.0
     assert {event["type"] for event in summary["events"]} == {
@@ -255,6 +265,49 @@ def test_build_match_summary_is_useful_without_report() -> None:
     assert summary["me"]["survived"] is False
     assert summary["teams"]["enemies"][0]["player"] == "Enemy"
     assert summary["timeline"]
+
+
+@pytest.mark.parametrize(
+    ("internal_name", "expected"),
+    [
+        ("PRSS110_K_type", "K type"),
+        ("PGSS510_U4501", "U4501"),
+        ("Unknown_ship_code", "Unknown_ship_code"),
+        (None, None),
+    ],
+)
+def test_readable_ship_name(internal_name: str | None, expected: str | None) -> None:
+    assert readable_ship_name(internal_name) == expected
+
+
+def test_decided_by_uses_eliminated_team_from_report() -> None:
+    report = report_data()
+    report["hidden"]["players"]["1"]["isAlive"] = True
+    report["hidden"]["players"]["2"]["isAlive"] = False
+
+    assert decided_by(make_raw(report=report), own_team=0) == "all_enemies_destroyed"
+
+
+def test_decided_by_uses_timeline_scores_and_time_limit() -> None:
+    report = report_data()
+    for player in report["hidden"]["players"].values():
+        player["isAlive"] = True
+    timeline = {
+        "meta": {"duration": 120},
+        "state_snapshots": [{"battle": {"team_scores": {"0": 1000, "1": 500}}}],
+    }
+    assert decided_by(make_raw(report=report, timeline=timeline), own_team=0) == "points"
+
+    timeline["state_snapshots"] = [
+        {"battle": {"team_scores": {"0": 800, "1": 700}, "time_left": 0}}
+    ]
+    assert decided_by(make_raw(report=report, timeline=timeline), own_team=0) == "time"
+
+
+def test_decided_by_is_unknown_without_battle_end_evidence() -> None:
+    report = report_data()
+    report["hidden"].pop("battle_result")
+    assert decided_by(make_raw(report=report), own_team=0) is None
 
 
 def test_write_match_summary_is_atomic_and_rejects_path_like_ids(tmp_path: Path) -> None:

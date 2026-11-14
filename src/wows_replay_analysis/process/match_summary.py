@@ -59,6 +59,7 @@ import json
 import logging
 import math
 import os
+import re
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -167,6 +168,7 @@ def build_match_summary(raw: RawMatch) -> dict:
             or timeline_meta.get("version"),
             "duration_s": duration,
             "result": result,
+            "decided_by": decided_by(raw, own_team),
             "result_decision": {
                 "winner_team_id": result_info.get("winner_team_id"),
                 "victory_type": result_info.get("victory_type"),
@@ -175,7 +177,16 @@ def build_match_summary(raw: RawMatch) -> dict:
         "me": {
             "player": stats.get("player_name") or own_name,
             "ship": {
-                "name": stats.get("ship_name") or (own_player or {}).get("ship"),
+                "name": readable_ship_name(
+                    stats.get("ship_name")
+                    or (own_player or {}).get("ship_id")
+                    or (own_player or {}).get("ship")
+                ),
+                "ship_id": (
+                    stats.get("ship_name")
+                    or (own_player or {}).get("ship_id")
+                    or (own_player or {}).get("ship")
+                ),
                 "class": stats.get("ship_class") or (own_player or {}).get("class"),
                 "tier": (
                     stats.get("ship_tier")
@@ -212,7 +223,12 @@ def readable_ship_name(internal_name: str | None) -> str | None:
     "PGSS510_U4501" -> "U4501". Return the input unchanged if it doesn't
     match that pattern, and None for None.
     """
-    raise NotImplementedError
+    if internal_name is None:
+        return None
+    match = re.fullmatch(r"[A-Za-z]+\d+_(.+)", internal_name)
+    if match is None:
+        return internal_name
+    return match.group(1).replace("_", " ")
 
 
 def decided_by(raw: RawMatch, own_team: int | None) -> str | None:
@@ -223,7 +239,148 @@ def decided_by(raw: RawMatch, own_team: int | None) -> str | None:
     "time" when the battle ran to its time limit; None when unclear.
     Use report data where available and the timeline otherwise.
     """
-    raise NotImplementedError
+    hidden = raw.report.get("hidden", {}) if isinstance(raw.report, dict) else {}
+    hidden = hidden if isinstance(hidden, dict) else {}
+    battle_result = hidden.get("battle_result")
+    winner = battle_result.get("winner_team_id") if isinstance(battle_result, dict) else None
+    complete = (
+        isinstance(winner, int) and not isinstance(winner, bool)
+    ) or _has_timeline_battle_end(raw.timeline)
+    if not complete or own_team is None:
+        return None
+
+    alive_by_team = _report_alive_by_team(hidden)
+    if alive_by_team is None:
+        alive_by_team = _timeline_alive_by_team(raw.timeline)
+    if alive_by_team is not None:
+        eliminated = [team for team, alive in alive_by_team.items() if not alive]
+        if own_team in eliminated:
+            return "all_allies_destroyed"
+        if any(team != own_team for team in eliminated):
+            return "all_enemies_destroyed"
+
+    scores = _last_team_scores(raw.timeline)
+    # WoWs ends a match when a team reaches the 1,000-point limit.
+    if scores and any(score >= 1000 for score in scores.values()):
+        return "points"
+
+    opened = raw.report.get("open", {}) if isinstance(raw.report, dict) else {}
+    opened = opened if isinstance(opened, dict) else {}
+    duration_limit = opened.get("battleDuration")
+    if duration_limit is None:
+        duration_limit = opened.get("duration")
+    time_limit = _numeric(duration_limit)
+    timeline = raw.timeline if isinstance(raw.timeline, dict) else {}
+    snapshots = timeline.get("state_snapshots")
+    if isinstance(snapshots, list) and snapshots:
+        last_battle = snapshots[-1].get("battle") if isinstance(snapshots[-1], dict) else None
+        time_left = _numeric(last_battle.get("time_left")) if isinstance(last_battle, dict) else None
+        if time_left is not None and time_left <= 0:
+            return "time"
+    meta = timeline.get("meta")
+    recorded_duration = _numeric(meta.get("duration")) if isinstance(meta, dict) else None
+    if (
+        time_limit is not None
+        and recorded_duration is not None
+        and recorded_duration >= time_limit
+    ):
+        return "time"
+    return None
+
+
+def _has_timeline_battle_end(timeline: dict | None) -> bool:
+    events = timeline.get("events") if isinstance(timeline, dict) else None
+    return isinstance(events, list) and any(
+        isinstance(event, dict) and event.get("event_type") == "BattleEndEvent"
+        for event in events
+    )
+
+
+def _report_alive_by_team(hidden: dict) -> dict[int, bool] | None:
+    players = hidden.get("players")
+    if isinstance(players, dict):
+        entries = list(players.values())
+    elif isinstance(players, list):
+        entries = players
+    else:
+        entries = []
+    counts: dict[int, list[bool]] = {}
+    for player in entries:
+        if not isinstance(player, dict):
+            return None
+        team = _integer_id(player.get("teamId"))
+        alive = player.get("isAlive")
+        if team is None or not isinstance(alive, bool):
+            return None
+        counts.setdefault(team, []).append(alive)
+    if len(counts) < 2:
+        return None
+    return {team: any(states) for team, states in counts.items()}
+
+
+def _timeline_alive_by_team(timeline: dict | None) -> dict[int, bool] | None:
+    if not isinstance(timeline, dict):
+        return None
+    players = timeline.get("players")
+    snapshots = timeline.get("state_snapshots")
+    events = timeline.get("events")
+    if (
+        not isinstance(players, list)
+        or not players
+        or not isinstance(snapshots, list)
+        or not snapshots
+    ):
+        return None
+    last_snapshot = snapshots[-1]
+    ships = last_snapshot.get("ships") if isinstance(last_snapshot, dict) else None
+    if not isinstance(ships, dict):
+        return None
+    deaths = {
+        _integer_id(event.get("victim_id", event.get("entity_id")))
+        for event in events
+        if isinstance(event, dict) and event.get("event_type") == "DeathEvent"
+    } if isinstance(events, list) else set()
+    counts: dict[int, list[bool]] = {}
+    for player in players:
+        if not isinstance(player, dict):
+            return None
+        team = _integer_id(player.get("team_id"))
+        ship_id = _integer_id(player.get("entity_id"))
+        if team is None or ship_id is None:
+            return None
+        state = ships.get(str(ship_id), ships.get(ship_id))
+        alive = state.get("is_alive") if isinstance(state, dict) else None
+        if not isinstance(alive, bool):
+            health = _numeric(state.get("health")) if isinstance(state, dict) else None
+            alive = False if ship_id in deaths or (health is not None and health <= 0) else None
+        if alive is None:
+            return None
+        counts.setdefault(team, []).append(alive)
+    if len(counts) < 2:
+        return None
+    return {team: any(states) for team, states in counts.items()}
+
+
+def _last_team_scores(timeline: dict | None) -> dict[int, float]:
+    if not isinstance(timeline, dict):
+        return {}
+    snapshots = timeline.get("state_snapshots")
+    if not isinstance(snapshots, list):
+        return {}
+    for snapshot in reversed(snapshots):
+        battle = snapshot.get("battle") if isinstance(snapshot, dict) else None
+        scores = battle.get("team_scores") if isinstance(battle, dict) else None
+        if not isinstance(scores, dict):
+            continue
+        parsed: dict[int, float] = {}
+        for key, value in scores.items():
+            team = _integer_id(key)
+            score = _numeric(value)
+            if team is not None and score is not None:
+                parsed[team] = score
+        if parsed:
+            return parsed
+    return {}
 
 
 def write_match_summary(summary: dict, matches_dir: Path, match_id: str) -> Path:
@@ -326,6 +483,7 @@ def _player_indexes(
             player = {"name": name}
         player.update({
             "ship": row.get("ship_name"),
+            "ship_id": row.get("ship_name"),
             "class": row.get("ship_type"),
             "tier": row.get("ship_level"),
             "alive": row.get("is_alive"),
@@ -374,6 +532,7 @@ def _player_indexes(
                     "team_id": player.get("team_id"),
                     "account_id": _integer_id(player.get("account_id")),
                     "entity_id": entity_id,
+                    "ship_id": player.get("ship"),
                 }.items()
                 if value is not None
             })
@@ -450,17 +609,26 @@ def _build_teams(
                     )
                     teams[team_name].append({
                         "player": row.get("username"),
-                        "ship": row.get("ship_name"),
+                        "ship": readable_ship_name(
+                            row.get("ship_name") or player.get("ship_id") or player.get("ship")
+                        ),
+                        "ship_id": (
+                            row.get("ship_name") or player.get("ship_id") or player.get("ship")
+                        ),
                         "class": row.get("ship_type"),
                         "tier": row.get("ship_level"),
                         "survived": row.get("is_alive"),
-                        "damage": (
-                            own_damage
-                            if row.get("is_own")
-                            else _damage_for_player(timeline, player, damage_by_ship)
-                        ),
                         "frags": row.get("frags"),
                         "xp": row.get("exp"),
+                        **(
+                            {"damage": own_damage}
+                            if row.get("is_own")
+                            else {
+                                "damage_timeline": _damage_for_player(
+                                    timeline, player, damage_by_ship
+                                )
+                            }
+                        ),
                     })
     if isinstance(timeline.get("players"), list):
         for player in timeline["players"]:
@@ -473,17 +641,24 @@ def _build_teams(
             entry = players_by_id.get(ship_id, {})
             teams[team_name].append({
                 "player": player.get("name"),
-                "ship": entry.get("ship"),
+                "ship": readable_ship_name(
+                    entry.get("ship_id") or entry.get("ship") or player.get("ship")
+                ),
+                "ship_id": entry.get("ship_id") or entry.get("ship") or player.get("ship"),
                 "class": entry.get("class"),
                 "tier": entry.get("tier"),
                 "survived": entry.get("alive"),
-                "damage": (
-                    own_damage
-                    if ship_id == own_ship_id
-                    else _damage_for_player(timeline, entry, damage_by_ship)
-                ),
                 "frags": entry.get("frags"),
                 "xp": entry.get("xp"),
+                **(
+                    {"damage": own_damage}
+                    if ship_id == own_ship_id
+                    else {
+                        "damage_timeline": _damage_for_player(
+                            timeline, entry, damage_by_ship
+                        )
+                    }
+                ),
             })
     return teams
 
@@ -718,9 +893,11 @@ def _player_reference(player: dict | None, player_id: int | None) -> dict | None
     if player is None and player_id is None:
         return None
     player = player or {}
+    ship_id = player.get("ship_id") or player.get("ship")
     return {
         "name": player.get("name"),
-        "ship": player.get("ship"),
+        "ship": readable_ship_name(ship_id),
+        "ship_id": ship_id,
         "class": player.get("class"),
         "tier": player.get("tier"),
     }
