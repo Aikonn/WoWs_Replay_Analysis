@@ -108,7 +108,7 @@ def test_deduplicate_deaths_keeps_avatar_message_and_original_order() -> None:
     ]
 
 
-def test_killing_blows_uses_last_positive_hp_and_snapshot_fallback() -> None:
+def test_killing_blows_uses_window_health_and_skips_stale_snapshot() -> None:
     timeline = _combat_timeline()
     timeline["state_snapshots"] = [
         {"timestamp": 19, "ships": {"4": {"health": 300}}}
@@ -122,8 +122,41 @@ def test_killing_blows_uses_last_positive_hp_and_snapshot_fallback() -> None:
     assert [(row["victim_id"], row["damage"]) for row in blows] == [
         (3, 15.0),
         (1, 50.0),
-        (4, 300.0),
     ]
+
+
+def test_killing_blows_subtract_window_damage_events_once_from_pre_window_hp() -> None:
+    timeline = {
+        "players": [
+            {"entity_id": 10, "max_health": 100},
+            {"entity_id": 20, "max_health": 200},
+            {"entity_id": 30, "max_health": 75},
+        ],
+        "events": [
+            {"event_type": "PropertyUpdateEvent", "entity_id": 10, "property_name": "health", "value": 60, "timestamp": 10},
+            {"event_type": "PropertyUpdateEvent", "entity_id": 10, "property_name": "health", "value": 0, "timestamp": 10},
+            {"event_type": "DeathEvent", "entity_id": 10, "victim_id": 10, "killer_id": 1, "timestamp": 10},
+            {"event_type": "PropertyUpdateEvent", "entity_id": 20, "property_name": "health", "value": 170, "timestamp": 19.3},
+            {"event_type": "PropertyUpdateEvent", "entity_id": 20, "property_name": "health", "value": 130, "timestamp": 19.9},
+            {"event_type": "PropertyUpdateEvent", "entity_id": 20, "property_name": "health", "value": 120, "timestamp": 19.95},
+            {"event_type": "DamageEvent", "attacker_id": 2, "target_id": 20, "damage": 70, "timestamp": 19.3},
+            {"event_type": "DamageEvent", "attacker_id": 3, "target_id": 20, "damage": 10, "timestamp": 19.95},
+            {"event_type": "DeathEvent", "entity_id": 20, "victim_id": 20, "killer_id": 1, "timestamp": 20},
+            {"event_type": "PropertyUpdateEvent", "entity_id": 30, "property_name": "health", "value": 50, "timestamp": 1},
+            {"event_type": "DeathEvent", "entity_id": 30, "victim_id": 30, "killer_id": 1, "timestamp": 10},
+        ],
+        "state_snapshots": [
+            {"timestamp": 9.9, "ships": {"30": {"health": 50}}}
+        ],
+    }
+
+    blows = killing_blows(timeline)
+
+    assert [(row["victim_id"], row["damage"]) for row in blows] == [
+        (10, 100.0),
+        (20, 120.0),
+    ]
+    assert damage_dealt_by_ship(timeline) == {1: 220.0, 2: 70.0, 3: 10.0}
 
 
 def test_damage_dealt_by_ship_adds_killing_blows_but_not_unknown_attackers() -> None:

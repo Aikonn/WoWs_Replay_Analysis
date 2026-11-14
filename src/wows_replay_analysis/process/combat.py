@@ -234,6 +234,27 @@ def killing_blows(timeline: dict | None) -> list[dict]:
         return []
 
     tracks: dict[int, list[tuple[float, float]]] = {}
+    health_updates: dict[int, list[float]] = {}
+    damage_events: dict[int, list[tuple[float, float]]] = {}
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        timestamp = _number(event.get("timestamp"))
+        if timestamp is None:
+            continue
+        if (
+            event.get("event_type") == "PropertyUpdateEvent"
+            and event.get("property_name") == "health"
+        ):
+            victim_id = _integer_id(event.get("entity_id"))
+            if victim_id is not None and _number(event.get("value")) is not None:
+                health_updates.setdefault(victim_id, []).append(timestamp)
+        elif event.get("event_type") == "DamageEvent":
+            victim_id = _integer_id(event.get("target_id"))
+            damage = _number(event.get("damage"))
+            if victim_id is not None and damage is not None:
+                damage_events.setdefault(victim_id, []).append((timestamp, damage))
+
     blows: list[dict] = []
     for death in deduplicate_deaths(events):
         victim_id = _death_victim_id(death)
@@ -247,18 +268,32 @@ def killing_blows(timeline: dict | None) -> list[dict]:
             logger.debug("Skipping killing blow with unknown or self killer: %r", death)
             continue
         timestamp = _number(death.get("timestamp"))
+        if timestamp is None:
+            logger.debug("Skipping killing blow with unknown death time: %r", death)
+            continue
+        window_start = timestamp - 1.0
+        if not any(
+            window_start <= update_time <= timestamp
+            for update_time in health_updates.get(victim_id, [])
+        ):
+            logger.debug("Skipping killing blow with stale victim HP: %r", death)
+            continue
+
         track = tracks.setdefault(victim_id, health_track(timeline, victim_id))
-        health = _health_before(track, timestamp)
-        if health is None:
-            health = _snapshot_health_before(timeline, victim_id, timestamp)
-        if health is None:
+        health_before = _health_before(track, window_start)
+        if health_before is None:
             logger.debug("Skipping killing blow with unknown victim HP: %r", death)
             continue
+        damage_in_window = sum(
+            damage
+            for damage_time, damage in damage_events.get(victim_id, [])
+            if window_start <= damage_time <= timestamp
+        )
         blows.append({
             "time_s": timestamp,
             "victim_id": victim_id,
             "killer_id": killer_id,
-            "damage": round(health, 1),
+            "damage": round(max(0.0, health_before - damage_in_window), 1),
         })
     return blows
 
@@ -687,29 +722,9 @@ def _number(value: object) -> float | None:
 
 
 def _health_before(
-    track: list[tuple[float, float]], timestamp: float | None
+    track: list[tuple[float, float]], timestamp: float
 ) -> float | None:
     for time_s, health in reversed(track):
-        if (timestamp is None or time_s <= timestamp) and health > 0:
-            return health
-    return None
-
-
-def _snapshot_health_before(
-    timeline: dict, ship_id: int, timestamp: float | None
-) -> float | None:
-    snapshots = timeline.get("state_snapshots")
-    if not isinstance(snapshots, list):
-        return None
-    for snapshot in reversed(snapshots):
-        if not isinstance(snapshot, dict):
-            continue
-        snapshot_time = _number(snapshot.get("timestamp"))
-        if timestamp is not None and snapshot_time is not None and snapshot_time > timestamp:
-            continue
-        ships = snapshot.get("ships")
-        state = ships.get(str(ship_id), ships.get(ship_id)) if isinstance(ships, dict) else None
-        health = _number(state.get("health")) if isinstance(state, dict) else None
-        if health is not None and health > 0:
+        if time_s <= timestamp:
             return health
     return None

@@ -32,6 +32,15 @@ the entry to **Resolved**.
 
 ## Open
 
+### 2026-11-14 · Progress · 0b-fix2. Killing blow window rule implemented
+Module: `process/combat.py`, `tests/test_combat.py`
+
+- Full suite: **105 passed**.
+- `process --force`: **4 database rows and 4 summaries written**; no processor version bump.
+- Damage windows: Shards **80,601.7** (expected 80,601.5 ±2); OC_prey **44,576.8** (expected 44,576.8 ±2).
+- `match.data_warnings` is empty on all four matches.
+- Libertad: BUCA_72teava_1 `damage_timeline` is **10,322**. Skipped killing blows: BUCA_72teava_1 → Nile666_ (228.1 s), WorldSp0wn → BWU_YellowMan (255.3 s), Recon_Echo_Six → Xieres87 (396.7 s), and ADMIRAL_KUTUZOV → ShakiTu (534.1 s), all at recording time.
+
 ### 2026-11-14 · Task · 0b-fix2. Killing blow with several HP drops in one instant (Claude → Copilot)
 Module: `process/combat.py`
 
