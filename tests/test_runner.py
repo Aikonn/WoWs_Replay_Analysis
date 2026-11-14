@@ -54,6 +54,29 @@ def test_needs_extraction_handles_missing_old_and_current_metadata(tmp_path: Pat
     assert runner.needs_extraction(match_dir)
 
 
+def test_cleanup_old_backups_removes_only_matching_backup_folders(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    raw_dir = tmp_path / "raw"
+    temp_dir = tmp_path / "temp"
+    raw_dir.mkdir()
+    temp_dir.mkdir()
+    monkeypatch.setattr(runner.tempfile, "gettempdir", lambda: str(temp_dir))
+
+    raw_backup = raw_dir / ".match.backup-a1b2"
+    temp_backup = temp_dir / ".other.backup-012345"
+    unrelated = raw_dir / ".match.backup-not-hex"
+    regular = raw_dir / "match"
+    for path in (raw_backup, temp_backup, unrelated, regular):
+        path.mkdir()
+
+    assert runner.cleanup_old_backups(raw_dir) == 2
+    assert not raw_backup.exists()
+    assert not temp_backup.exists()
+    assert unrelated.is_dir()
+    assert regular.is_dir()
+
+
 def test_read_replay_header_reads_valid_json_and_rejects_bad_signature(tmp_path: Path) -> None:
     replay_path = tmp_path / "match.wowsreplay"
     header = {"mapName": "spaces/map", "clientVersionFromXml": "15,10,0,13533378"}
@@ -156,9 +179,12 @@ def test_extract_all_skips_current_and_continues_after_failure(
             raise RuntimeError("broken replay")
 
     monkeypatch.setattr(runner, "extract_replay", fake_extract)
+    cleanup_calls: list[Path] = []
+    monkeypatch.setattr(runner, "cleanup_old_backups", cleanup_calls.append)
 
     result = runner.extract_all(config)
 
+    assert cleanup_calls == [config.raw_dir]
     assert result.skipped == ["a"]
     assert result.extracted == []
     assert result.failed == {"b": "broken replay"}

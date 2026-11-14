@@ -15,6 +15,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import struct
 import tempfile
@@ -217,7 +218,32 @@ def cleanup_old_backups(raw_dir: Path) -> int:
     Return the number of folders deleted. Log one INFO line with the count
     deleted and the count still left when either is non-zero.
     """
-    raise NotImplementedError
+    backup_name = re.compile(r"\..+\.backup-[0-9a-f]+")
+    parents = {raw_dir, Path(tempfile.gettempdir())}
+    backups: set[Path] = set()
+    for parent in parents:
+        try:
+            backups.update(
+                path for path in parent.iterdir()
+                if backup_name.fullmatch(path.name)
+                and path.is_dir()
+                and not path.is_symlink()
+            )
+        except OSError as exc:
+            logger.debug("Could not scan for old backups in %s: %s", parent, exc)
+
+    deleted = 0
+    for backup in backups:
+        try:
+            shutil.rmtree(backup)
+            deleted += 1
+        except OSError as exc:
+            logger.debug("Could not remove old extract backup %s: %s", backup, exc)
+
+    remaining = len(backups) - deleted
+    if deleted or remaining:
+        logger.info("Old backup cleanup: deleted %d folder(s); %d remain", deleted, remaining)
+    return deleted
 
 
 def extract_all(config: Config, force: bool = False) -> ExtractResult:
@@ -230,6 +256,10 @@ def extract_all(config: Config, force: bool = False) -> ExtractResult:
     """
     result = ExtractResult()
     config.raw_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        cleanup_old_backups(config.raw_dir)
+    except Exception:
+        logger.exception("Could not clean up old extract backups")
 
     for replay_path in find_replays(config.replays_dir):
         match_id = match_id_for(replay_path)
