@@ -42,6 +42,13 @@ Source mapping decisions (2026-11-14, after the first real run):
   at the end, final team scores, duration vs the battle time limit), not from
   guessed victory_type codes.
 - Timeline samples keep the 3 nearest enemies, each with a `visible` flag.
+- Incomplete replays (player left after dying, or disconnected): add
+  match.replay_complete, match.end_reason and match.recorded_s from
+  stats.replay_end(); result "unknown", decided_by null. Fill `me` from the
+  timeline where the report has no post-battle screen, and mark those
+  numbers as estimates (`stats_source: "timeline"`). Say in the summary
+  that events after recorded_s are not known, so the AI doesn't assume
+  the battle ended there.
 - Keep the whole summary under about 50 KB; the first real ones were 48 KB,
   so new fields must not add much. Trim chat or samples before key events.
 """

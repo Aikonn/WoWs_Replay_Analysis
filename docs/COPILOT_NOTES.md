@@ -26,7 +26,13 @@ the entry to **Resolved**.
 
 ## Open
 
-_(none)_
+### 2026-11-14 · Design · Incomplete replays (Claude → Copilot)
+Module: `process/stats.py`, `process/database.py`, `process/match_summary.py`
+
+Replays can end early: the owner often leaves the battle after his ship dies, and rarely gets disconnected. Such replays have no battle result and probably no post-battle screen. Right now `match_stats_row` raises on a missing `battle_result`. Please implement the new `replay_end()` skeleton and the fallback rules in the `stats.py` and `match_summary.py` module docstrings; the schema has four new columns. Bump `PROCESSOR_VERSION` and make sure an existing database gets the new columns (rebuild or `ALTER TABLE`).
+
+Also check Stage 1: the extraction of an early-ended replay must not record parser errors just because end-of-battle data is missing. The owner will add such a replay to `test_data/replays/`. Please report what each parser actually returns for it (which report sections are missing, the last timeline events), so the detection rules can be confirmed.
+
 
 ## Resolved
 

@@ -2,6 +2,18 @@
 
 Built from the post-battle report (report.json); the timeline is only needed
 for values the report does not have (e.g. time of death).
+
+Incomplete replays: when the player leaves the battle after dying (common)
+or gets disconnected (rare), the replay stops early. It then has no battle
+result and probably no post-battle screen (battle_results_beta). Such a
+replay must still produce a row:
+- result = "unknown", replay_complete = 0, end_reason from replay_end().
+- Damage, frags, damage received, spotting etc. fall back to the timeline
+  where it has them (stats_source = "timeline"); values the timeline can't
+  give stay NULL. Never fail just because report sections are missing.
+- survived / time_of_death_s still come from the timeline.
+Trend reports must exclude result "unknown" from win rates but keep these
+matches for damage, survival and early-death statistics.
 """
 
 from __future__ import annotations
@@ -16,6 +28,26 @@ from wows_replay_analysis.process.raw_loader import RawMatch
 from wows_replay_analysis.process.raw_loader import own_entity_ids
 
 logger = logging.getLogger(__name__)
+
+
+def replay_end(raw: RawMatch) -> dict:
+    """Describe how the replay ended.
+
+    Return {"replay_complete": bool, "end_reason": str, "recorded_s": float | None}.
+
+    replay_complete is True when the replay contains the battle result
+    (report hidden.battle_result with a winner, or a battle-end event in the
+    timeline). Otherwise end_reason is:
+      "left_after_death"  the recording player's ship was destroyed before
+                          the recording stops (the usual case),
+      "disconnected"      the recording player's ship was still alive at the
+                          end of the recording,
+      "unknown"           not enough data to tell.
+    For complete replays end_reason is "battle_end".
+    recorded_s is the battle time of the last timeline event (or the report
+    duration when there is no timeline).
+    """
+    raise NotImplementedError
 
 
 def match_stats_row(raw: RawMatch) -> dict:

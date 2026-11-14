@@ -79,6 +79,10 @@ real level of comments:
 - Ships: readable `ship` name plus internal `ship_id` (see `readable_ship_name`).
 - `decided_by` is derived from the data, never from guessed `victory_type` codes.
 - Keep summaries under about 50 KB.
+- Replays can end early (player left after dying, or disconnected). Missing
+  report sections (battle_result, battle_results_beta) are normal, not
+  errors: fall back to the timeline, set result "unknown" and mark the
+  numbers as estimates. See `stats.replay_end()`.
 
 ## Replay parser notes
 

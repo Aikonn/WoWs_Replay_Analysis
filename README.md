@@ -88,6 +88,20 @@ Evaluated on 2026-11-14 with two real replays from game version 15.10.0 (build 1
 - **How the match was decided** (`decided_by`) is derived from the data:
   all ships of one team destroyed, points, or time.
 
+## Incomplete replays
+
+A replay stops early when you leave the battle after your ship is destroyed
+(the usual case) or when you get disconnected (rare). It then has no battle
+result and probably no post-battle screen.
+
+- These matches are still processed. Their result is `unknown`, and
+  `end_reason` says `left_after_death` or `disconnected`.
+- Their personal numbers come from the timeline and are marked as estimates
+  (`stats_source = timeline`).
+- Trend reports leave them out of win rates, but keep them for damage,
+  survival and early-death statistics.
+- To be verified on a real replay where the owner left after dying.
+
 ## Setup
 
 1. Install Python 3.11 or newer, and git.

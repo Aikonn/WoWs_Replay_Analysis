@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS matches (
     ship_name           TEXT,
     ship_class          TEXT,               -- Destroyer, Cruiser, Battleship, AirCarrier, Submarine
     ship_tier           INTEGER,
-    result              TEXT,               -- win, loss, draw
+    result              TEXT,               -- win, loss, draw, unknown (replay ended early)
     duration_s          REAL,
     survived            INTEGER,            -- 0/1
     time_of_death_s     REAL,               -- NULL if survived
@@ -45,7 +45,11 @@ CREATE TABLE IF NOT EXISTS matches (
     planes_killed       INTEGER,
     capture_points      INTEGER,
     defense_points      INTEGER,
-    ribbons_json        TEXT                -- {"RIBBON_TORPEDO": 8, ...}
+    ribbons_json        TEXT,               -- {"RIBBON_TORPEDO": 8, ...}
+    replay_complete     INTEGER,            -- 0/1, see stats.replay_end()
+    end_reason          TEXT,               -- battle_end, left_after_death, disconnected, unknown
+    recorded_s          REAL,               -- seconds of battle the replay covers
+    stats_source        TEXT                -- report (exact) or timeline (estimated)
 );
 """
 
