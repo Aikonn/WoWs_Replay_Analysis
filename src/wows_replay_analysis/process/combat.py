@@ -207,8 +207,15 @@ def killing_blows(timeline: dict | None) -> list[dict]:
     """Return the damage of every killing blow, which has no DamageEvent.
 
     For each deduplicated death: {"time_s", "victim_id", "killer_id",
-    "damage"}, where damage = the victim's last HP before the death (from
-    health_track, or from the last state snapshot if the track is empty).
+    "damage"}. The fatal hit and any hits in the same instant have no
+    DamageEvent, so damage = the victim's HP drops in the last 1.0 s up to
+    the death that are not matched by a DamageEvent on the victim (same
+    amount within 1 HP, within 0.3 s). Matched drops belong to their own
+    attackers. Fallback when the track is empty: the last state snapshot HP.
+    OC_prey (2026-11-13), Warzeimer at 268.4 s recording time: HP 8383.5 ->
+    341.1 -> 0 in one tick, no DamageEvent from the killer, so the killing
+    blow is 8383.5 (only the 341.1 step would leave my damage 8,042 short).
+    The 46 and 48 attacker-0 DamageEvents in the same tick match no drop.
     Skip deaths where the victim's HP is unknown or the killer is the victim
     itself (e.g. flooding with no attacker); log those at DEBUG.
     """
