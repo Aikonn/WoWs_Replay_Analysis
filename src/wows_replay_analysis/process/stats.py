@@ -5,7 +5,9 @@ the timeline for estimates when report sections are not available.
 
 Incomplete replays: when the player leaves the battle after dying (common)
 or gets disconnected (rare), the replay stops early. It then has no battle
-result and probably no post-battle screen (battle_results_beta). Such a
+result (hidden.battle_result is null) and an empty post-battle screen
+(battle_results_beta.tabs is {}); verified on two real replays. The
+recording continues while the player spectates, until he leaves. Such a
 replay must still produce a row:
 - result = "unknown", replay_complete = 0, end_reason from replay_end().
 - Damage, frags, damage received, spotting etc. fall back to the timeline

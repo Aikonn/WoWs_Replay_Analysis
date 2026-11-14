@@ -100,7 +100,9 @@ result and probably no post-battle screen.
   (`stats_source = timeline`).
 - Trend reports leave them out of win rates, but keep them for damage,
   survival and early-death statistics.
-- To be verified on a real replay where the owner left after dying.
+- Verified on two real replays where the owner left after dying: both have no
+  battle result and an empty post-battle screen, and the recording continues
+  while spectating until the player leaves (death at 452 s, recording to 591 s).
 
 ## Setup
 
