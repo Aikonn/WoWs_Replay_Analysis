@@ -78,6 +78,16 @@ Evaluated on 2026-11-14 with two real replays from game version 15.10.0 (build 1
 - A **configuration file** sets the replay folder. The game saves replays in its installation folder by default.
 - Replays that were already processed are **skipped**. They are reprocessed only when the extraction format version changes.
 
+## Single-match summary sources
+
+- **My numbers** come from the post-battle report (exact).
+- **Other players' damage** is summed from timeline damage events and labelled
+  `damage_timeline`, because the report's team tab has no per-player damage.
+- **Ship names**: the report only has internal names (`PRSS110_K_type`); the
+  summary shows a readable form (`K type`) and keeps the internal one.
+- **How the match was decided** (`decided_by`) is derived from the data:
+  all ships of one team destroyed, points, or time.
+
 ## Setup
 
 1. Install Python 3.11 or newer, and git.
@@ -91,6 +101,12 @@ Evaluated on 2026-11-14 with two real replays from game version 15.10.0 (build 1
    game's replay folder.
 
 The first extraction clones the gamedata repo (about 460 MB) into `cache/`.
+
+**OneDrive:** keep `data_dir` and `gamedata_dir` outside OneDrive-synced
+folders (for example `C:/WoWs_Replay_Data/data` and `C:/WoWs_Replay_Data/cache`).
+OneDrive can block deleting old extract backups, and syncing a 460 MB git
+clone wastes bandwidth. Leftover hidden `.<match_id>.backup-*` folders are
+harmless and can be deleted by hand.
 
 ## Usage
 

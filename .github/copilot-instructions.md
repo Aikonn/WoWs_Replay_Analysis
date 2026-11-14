@@ -72,6 +72,14 @@ real level of comments:
   `extract/__init__.py`. When the summary format or database schema changes,
   bump `PROCESSOR_VERSION` in `process/__init__.py`.
 
+## Match summary rules
+
+- My damage = post-battle report total. Others' damage = timeline
+  DamageEvents, stored as `damage_timeline`. Don't use shots_damage_map for totals.
+- Ships: readable `ship` name plus internal `ship_id` (see `readable_ship_name`).
+- `decided_by` is derived from the data, never from guessed `victory_type` codes.
+- Keep summaries under about 50 KB.
+
 ## Replay parser notes
 
 - Both parsers are installed from GitHub (see `pyproject.toml`). The PyPI

@@ -25,6 +25,25 @@ First version of the content (to be refined after trying it on real matches):
 
 Sources: post-battle numbers from report.json (battle_results_beta), the
 timeline and events from timeline.json.gz.
+
+Source mapping decisions (2026-11-14, after the first real run):
+
+- Ship names: the report has only internal ship names (e.g. "PRSS110_K_type").
+  Show `ship` as a readable name built by readable_ship_name() and keep the
+  internal name as `ship_id`. If the gamedata clone turns out to contain
+  localized ship names, use them instead and say so in COPILOT_NOTES.
+- Damage: the recording player's damage is the post-battle report total
+  (authoritative). Other players' damage is summed from timeline
+  DamageEvents and stored as `damage_timeline` (not `damage`), so the AI
+  knows it is an estimate. Ignore shots_damage_map for totals.
+- Result: keep the numeric `victory_type`, and add `decided_by` from
+  decided_by(): "all_enemies_destroyed", "all_allies_destroyed", "points",
+  "time" or null when unclear. Derive it from the data (alive ships per team
+  at the end, final team scores, duration vs the battle time limit), not from
+  guessed victory_type codes.
+- Timeline samples keep the 3 nearest enemies, each with a `visible` flag.
+- Keep the whole summary under about 50 KB; the first real ones were 48 KB,
+  so new fields must not add much. Trim chat or samples before key events.
 """
 
 from __future__ import annotations
@@ -176,6 +195,28 @@ def build_match_summary(raw: RawMatch) -> dict:
     }
     logger.debug("Built match summary for %s", raw.match_id)
     return summary
+
+
+def readable_ship_name(internal_name: str | None) -> str | None:
+    """Turn an internal ship name into a readable one.
+
+    Strip the ship index prefix (letter code + digits, e.g. "PRSS110_") and
+    replace underscores with spaces: "PRSS110_K_type" -> "K type",
+    "PGSS510_U4501" -> "U4501". Return the input unchanged if it doesn't
+    match that pattern, and None for None.
+    """
+    raise NotImplementedError
+
+
+def decided_by(raw: RawMatch, own_team: int | None) -> str | None:
+    """Return how the match was decided, from the data rather than codes.
+
+    "all_enemies_destroyed" / "all_allies_destroyed" when one team has no
+    ships alive at the end; "points" when a team reached the score limit;
+    "time" when the battle ran to its time limit; None when unclear.
+    Use report data where available and the timeline otherwise.
+    """
+    raise NotImplementedError
 
 
 def write_match_summary(summary: dict, matches_dir: Path, match_id: str) -> Path:
