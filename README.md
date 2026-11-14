@@ -120,9 +120,11 @@ The first extraction clones the gamedata repo (about 460 MB) into `cache/`.
 
 **OneDrive:** keep `data_dir` and `gamedata_dir` outside OneDrive-synced
 folders (for example `C:/WoWs_Replay_Data/data` and `C:/WoWs_Replay_Data/cache`).
-OneDrive can block deleting old extract backups, and syncing a 460 MB git
-clone wastes bandwidth. Leftover hidden `.<match_id>.backup-*` folders are
-harmless; each extract run tries to delete them again.
+syncing a 460 MB git clone wastes bandwidth. Folders under OneDrive can carry
+the read-only attribute, which made plain `shutil.rmtree` fail with WinError 5;
+all folder deletes go through `remove_tree()`, which clears it and retries.
+Leftover hidden `.<match_id>.backup-*` folders from older runs are harmless;
+each extract run deletes them.
 
 ## Usage
 

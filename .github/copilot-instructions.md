@@ -34,6 +34,11 @@ file) whenever you:
 
 Keep entries short. Don't edit or delete Claude's replies.
 
+Task and Design entries from Claude have a `Done when:` line. The work is
+finished only when it holds: in your Progress report, confirm each point with
+real results (test names, counts, output), or say which part failed and why.
+Give your own Proposals a `Done when:` line too.
+
 ## Code style
 
 - Python 3.11+, type hints everywhere, `from __future__ import annotations`.
@@ -67,6 +72,8 @@ real level of comments:
   from the original replays.
 - Write files atomically (write to a temporary name, then rename), so a crash
   never leaves a half-written file that looks complete.
+- Delete folders with `extract.runner.remove_tree()`, never plain
+  `shutil.rmtree` (read-only attributes on Windows/OneDrive make it fail).
 - One broken replay must never stop a run. Log the error, count it, continue.
 - When the raw extract format changes, bump `EXTRACTOR_VERSION` in
   `extract/__init__.py`. When the summary format or database schema changes,

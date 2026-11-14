@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import shutil
+import stat
 import struct
 import tempfile
 import uuid
@@ -168,7 +169,7 @@ def extract_replay(replay_path: Path, config: Config) -> None:
         _publish_extract(staging_dir, match_dir)
     finally:
         if staging_dir.exists():
-            shutil.rmtree(staging_dir)
+            remove_tree(staging_dir)
 
 
 def write_meta(match_dir: Path, replay_path: Path, header: dict, errors: dict[str, str]) -> None:
@@ -205,15 +206,31 @@ def write_meta(match_dir: Path, replay_path: Path, header: dict, errors: dict[st
     _write_json_atomic(match_dir / "meta.json", meta)
 
 
+def remove_tree(path: Path) -> None:
+    """Delete a folder tree, clearing read-only attributes that block it.
+
+    On Windows, shutil.rmtree fails with WinError 5 (Access is denied) when a
+    file or folder has the read-only attribute; folders under OneDrive often
+    carry it. Use shutil.rmtree with an error handler that, for a
+    PermissionError, clears the attribute (os.chmod(p, stat.S_IWRITE)) and
+    retries the failed call once; any other error, or a second failure, is
+    raised. Python 3.12+ passes the handler as `onexc`, 3.11 as `onerror`
+    (its third argument is an exc_info tuple); pick by sys.version_info.
+
+    Raise OSError if the tree can't be removed. A missing path is not an error.
+    """
+    raise NotImplementedError
+
+
 def cleanup_old_backups(raw_dir: Path) -> int:
     """Try to delete leftover extract backups from earlier runs.
 
     _publish_extract leaves `.<match_id>.backup-<hex>` folders behind when it
-    can't delete them (OneDrive sometimes blocks the delete, possibly only
-    while it is syncing). Look for them in raw_dir and in the system temp
-    folder (tempfile.gettempdir()), and only match that exact name pattern.
-    Delete each one with shutil.rmtree; if that fails, log one DEBUG line per
-    folder and carry on. Never touch anything else.
+    can't delete them (before remove_tree existed, the read-only attribute
+    on the folders made shutil.rmtree fail). Look for them in raw_dir and in
+    the system temp folder (tempfile.gettempdir()), and only match that exact
+    name pattern. Delete each one with remove_tree; if that fails, log one
+    DEBUG line per folder and carry on. Never touch anything else.
 
     Return the number of folders deleted. Log one INFO line with the count
     deleted and the count still left when either is non-zero.
@@ -235,7 +252,7 @@ def cleanup_old_backups(raw_dir: Path) -> int:
     deleted = 0
     for backup in backups:
         try:
-            shutil.rmtree(backup)
+            remove_tree(backup)
             deleted += 1
         except OSError as exc:
             logger.debug("Could not remove old extract backup %s: %s", backup, exc)
@@ -317,7 +334,7 @@ def _publish_extract(staging_dir: Path, match_dir: Path) -> None:
         raise
     if had_existing:
         try:
-            shutil.rmtree(backup_dir)
+            remove_tree(backup_dir)
         except OSError as exc:
             logger.warning(
                 "Published extract %s but could not remove old backup %s: %s",
