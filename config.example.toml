@@ -1,0 +1,17 @@
+# Copy this file to config.toml and adjust the paths.
+# config.toml is ignored by git, so each user keeps their own.
+# Relative paths are resolved from the folder that contains config.toml.
+
+[paths]
+# Folder where World of Warships saves replays (inside the game installation).
+replays_dir = "C:/Games/World_of_Warships/replays"
+
+# Where the tool stores raw extracts, match summaries, the SQLite database and reports.
+data_dir = "data"
+
+# Local clone of https://github.com/toalba/wows-render-gamedata (cloned automatically if missing).
+gamedata_dir = "cache/wows-gamedata"
+
+[extract]
+# Seconds between ship state snapshots in the event timeline.
+snapshot_interval = 5.0

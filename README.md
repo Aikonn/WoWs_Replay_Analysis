@@ -75,6 +75,81 @@ Evaluated on 2026-11-14 with two real replays from game version 15.10.0 (build 1
 - A **configuration file** sets the replay folder. The game saves replays in its installation folder by default.
 - Replays that were already processed are **skipped**. They are reprocessed only when the extraction format version changes.
 
+## Setup
+
+1. Install Python 3.11 or newer, and git.
+2. Clone this repo and create a virtual environment inside it:
+   ```
+   python -m venv .venv
+   .venv\Scripts\activate
+   pip install -e .[dev]
+   ```
+3. Copy `config.example.toml` to `config.toml` and set `replays_dir` to your
+   game's replay folder.
+
+The first extraction clones the gamedata repo (about 460 MB) into `cache/`.
+
+## Usage
+
+```
+python -m wows_replay_analysis run                 # extract new replays + process them
+python -m wows_replay_analysis extract [--force]   # Stage 1 only
+python -m wows_replay_analysis process [--force]   # Stage 2 only
+python -m wows_replay_analysis report --ship Schlieffen --since 2026-11-07
+```
+
+- Single-match discussion: take `data/matches/<match_id>.json` into the chat.
+- Trend discussion: take the HTML file from `data/reports/` into the chat, or
+  just open it in a browser.
+
+## Project structure
+
+```
+.github/copilot-instructions.md   Coding rules for Copilot
+config.example.toml               Config template (copy to config.toml)
+pyproject.toml                    Package and dependencies
+src/wows_replay_analysis/
+    cli.py                        Commands: extract, process, report, run
+    config.py                     Loads config.toml
+    extract/                      Stage 1
+        runner.py                 Finds replays, skips done ones, runs both parsers
+        report_parser.py          replays_unpack wrapper (post-battle report)
+        timeline_parser.py        wows-replay-parser wrapper (event timeline)
+        gamedata.py               Keeps the gamedata clone on the right tag
+    process/                      Stage 2
+        raw_loader.py             Reads one raw extract
+        match_summary.py          Condensed single-match JSON
+        stats.py                  One database row per match
+        database.py               SQLite schema and writes
+    report/                       Stage 3
+        html_report.py            HTML trend report
+tests/                            pytest tests
+```
+
+Local-only folders (ignored by git): `config.toml`, `data/`, `cache/`,
+`test_data/`, `_tools/`.
+
+## Data layout
+
+```
+data/
+    raw/<match_id>/               Stage 1, permanent archive
+        meta.json                 Replay header, file hash, extractor and parser versions, errors
+        report.json               Post-battle report (replays_unpack)
+        timeline.json.gz          Event timeline (wows-replay-parser), compressed
+    matches/<match_id>.json       Stage 2, condensed single-match summary
+    stats.sqlite                  Stage 2, one row per match
+    reports/*.html                Stage 3, trend reports
+cache/wows-gamedata/              Gamedata clone used by the timeline parser
+```
+
+`match_id` is the replay file name without its extension, for example
+`20261113_184244_PRSS110-K-type_23_Shards`.
+
+Versioning: `EXTRACTOR_VERSION` (Stage 1) and `PROCESSOR_VERSION` (Stage 2)
+are stored with every output. Raising either one makes the next run redo the
+affected matches; everything else is skipped.
+
 ## Sharing
 
 The tool should be easy to share. Each user runs their own copy on their own computer, with their own replays and configuration.
@@ -90,5 +165,5 @@ Existing community tools (for example, replay parsers) should be used wherever p
 
 ## Workflow
 
-- **Claude:** goals and design discussions; writes and maintains the README and instruction files; may set up the code structure (function headers and comments).
-- **GitHub Copilot:** does at least part of the implementation.
+- **Claude:** goals and design discussions; writes and maintains the README and instruction files; sets up the code structure (function signatures and docstrings).
+- **GitHub Copilot:** implements the functions, following `.github/copilot-instructions.md`. Functions still to be written raise `NotImplementedError`.

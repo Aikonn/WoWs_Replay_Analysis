@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wows-replay-analysis"
+version = "0.1.0"
+description = "Extracts World of Warships replay data for AI-led match discussions and trend reports."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # Post-battle report parser (install from GitHub: the PyPI release lags behind game versions).
+    "World-of-Warships-replays-parser @ git+https://github.com/Monstrofil/replays_unpack.git",
+    "pycryptodomex",
+    "lxml",
+    # Event timeline parser.
+    "wows-replay-parser[cli] @ git+https://github.com/toalba/wows-replay-parser.git",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+wows-analysis = "wows_replay_analysis.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

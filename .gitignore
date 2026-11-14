@@ -1,2 +1,17 @@
 /_tools/
 /test_data/
+
+# Local configuration (each user has their own)
+/config.toml
+
+# Generated data and caches
+/data/
+/cache/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
