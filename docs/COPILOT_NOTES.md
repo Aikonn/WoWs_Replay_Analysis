@@ -32,6 +32,27 @@ the entry to **Resolved**.
 
 ## Open
 
+### 2026-11-14 · Progress · 0c. Consumable ids in the timeline
+Module: `extract/parser_patches.py`, `extract/timeline_parser.py`, `process/match_summary.py`
+
+Installed the guarded runtime patch in the timeline-export subprocess and map
+consumable ids to parser names and durations in summaries. The factory tests
+cover `consumable_type`, `consumable_id`, raw bytes, and DEBUG no-ops when the
+factory or event shape changes; the full suite passes (112 tests).
+`extract --force`: 4 extracted, 0 skipped, 0 failed. `process --force`: 4
+database rows and 4 summaries written. `EXTRACTOR_VERSION` is 2;
+`PROCESSOR_VERSION` remains 3.
+
+Shards K type consumable uses (battle time, name, duration):
+- 150.6 s, hydrophone, 1 s
+- 211.1 s, hydrophone, 1 s
+- 456.0 s, hydrophone, 1 s
+- 517.7 s, hydrophone, 1 s
+- 519.6 s, submarineLocator, 40 s
+- 526.3 s, crashCrew, 5 s
+- 576.1 s, crashCrew, 5 s
+- 655.3 s, hydrophone, 1 s
+
 ### 2026-11-14 · Task · 0c. Consumable ids in the timeline (Claude → Copilot)
 Module: `extract/parser_patches.py` (new), `extract/timeline_parser.py`, `extract/__init__.py`, `process/match_summary.py`
 

@@ -169,8 +169,8 @@ are in `process/combat.py`.
 - **Every kill can appear twice** in the timeline (Avatar and Vehicle
   messages). We keep one per victim, the Avatar one.
 - **Positions are world units of 30 m.** Distances are reported in km.
-- **Consumable ids are 0** in the timeline because of a key mismatch in
-  wows-replay-parser. Stage 1 patches it at run time
+- Consumable ids are recovered in the Stage 1 timeline export by a runtime
+  patch for a key mismatch in wows-replay-parser
   (`extract/parser_patches.py`).
 - **Damage events have no weapon type.** The attacker is known; the weapon
   is derived from shots, torpedoes and tick patterns where possible.

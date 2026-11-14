@@ -24,6 +24,7 @@ def test_export_timeline_runs_full_export_and_compresses_json(
 
     def fake_run(command: list[str], **kwargs: object) -> Result:
         assert command[0] == timeline_parser.sys.executable
+        assert "apply_timeline_patches" in command[2]
         assert command[3:7] == [
             "export",
             str(replay_path),

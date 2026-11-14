@@ -130,6 +130,8 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
+from wows_replay_parser.consumable_calc import CONSUMABLE_TYPE_ID_MAP
+
 from wows_replay_analysis.config import Config
 from wows_replay_analysis.process import PROCESSOR_VERSION
 from wows_replay_analysis.process.combat import (
@@ -989,11 +991,12 @@ def _build_events(
             and _integer_id(event.get("vehicle_id", event.get("entity_id"))) == own_ship_id
             and event.get("is_used") is True
         ):
+            consumable_type = _integer_id(event.get("consumable_type"))
             summaries.append({
                 "type": "consumable",
                 "time_s": battle_timestamp,
-                "consumable_id": event.get("consumable_id"),
-                "consumable_type": event.get("consumable_type"),
+                "consumable": CONSUMABLE_TYPE_ID_MAP.get(consumable_type),
+                "duration_s": event.get("work_time_left"),
             })
         elif event_type == "CapturePointUpdateEvent":
             summaries.append({

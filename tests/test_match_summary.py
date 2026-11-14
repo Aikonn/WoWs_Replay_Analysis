@@ -181,6 +181,7 @@ def timeline_data() -> dict:
                 "is_used": True,
                 "consumable_id": 1,
                 "consumable_type": 2,
+                "work_time_left": 5.0,
             },
             {
                 "event_type": "CapturePointUpdateEvent",
@@ -256,6 +257,15 @@ def test_build_match_summary_combines_report_and_timeline_compactly() -> None:
         "capture_point",
         "team_chat",
         "kill",
+    }
+    consumable = next(
+        event for event in summary["events"] if event["type"] == "consumable"
+    )
+    assert consumable == {
+        "type": "consumable",
+        "time_s": 20.0,
+        "consumable": "airDefenseDisp",
+        "duration_s": 5.0,
     }
     assert len(json.dumps(summary).encode("utf-8")) < 50_000
 

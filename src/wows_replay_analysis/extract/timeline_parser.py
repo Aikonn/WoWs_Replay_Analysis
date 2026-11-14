@@ -55,7 +55,11 @@ def export_timeline(replay_path: Path, entity_defs_dir: Path, output_gz: Path,
     command = [
         sys.executable,
         "-c",
-        "from wows_replay_parser.cli import main; main()",
+        (
+            "from wows_replay_analysis.extract.parser_patches import "
+            "apply_timeline_patches; apply_timeline_patches(); "
+            "from wows_replay_parser.cli import main; main()"
+        ),
         "export",
         str(replay_path),
         "--gamedata",
