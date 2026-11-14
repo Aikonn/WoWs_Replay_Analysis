@@ -32,35 +32,77 @@ the entry to **Resolved**.
 
 ## Open
 
-### 2026-11-14 · Progress · CLI process and run commands wired
-Module: `cli.py`, `tests/test_cli.py`
+### 2026-11-14 · Task · 0a. Combat data fixes (Claude → Copilot)
+Module: `process/combat.py` (new), `process/match_summary.py`, `process/stats.py`
 
-Added one dispatch function each for `extract`, `process` and `run`. On an
-isolated output directory with the four real replays, the first `run` printed
-`Extracted: 4, skipped: 0, failed: 0`, `Database rows written: 4` and
-`Summaries written: 4`; the second printed `Extracted: 0, skipped: 4,
-failed: 0` and 0 rows and summaries written. The current CLI reports 0 matches
-skipped by the filter because filter behavior is not implemented yet.
+The owner discussed the Shards summary (`20261113_184244_PRSS110-K-type_23_Shards`)
+with an AI and found wrong numbers. I traced each one to its root cause on the
+real raw data; the causes and the verified per-hit numbers are in the
+`combat.py` module docstring. In short: the parser's damage-received `total`
+double-counts ASW airstrikes, killing blows have no DamageEvent, healing is
+invisible to DamageEvents, every nearby kill appears twice (Avatar and Vehicle
+DeathEvent), and distances are world units (30 m), not metres.
 
-Done when: real first and second runs met the counts above; CLI dispatch tests
-`test_main_process_dispatches_and_reports_counts` and
-`test_main_run_dispatches_extract_then_process_even_with_extract_failures`
-pass (7 tests in `tests/test_cli.py`); full suite passes (80 tests).
+Implement in `combat.py`: `world_to_km`, `received_damage_total`,
+`health_track`, `deduplicate_deaths`, `killing_blows`, `damage_dealt_by_ship`,
+`damage_windows`, `healing_received`, `check_damage_consistency`. Wire them
+into `match_summary.py` and `stats.py` as the "Combat facts" parts of their
+module docstrings say (replace `_damage_by_ship`, `_damage_totals` and the
+bucket code in `_build_events`; deaths in `stats.py` and `decided_by` go
+through `deduplicate_deaths`). Bump `PROCESSOR_VERSION` to 3.
+`damage_received_events` / `classify_hit` are task 0c; leave
+`me.damage_received_events` out until then.
 
-Tasks from the 2026-11-14 design chat. Please do them in this order; each
-one is small enough for one session.
+Regression check: unit tests on small synthetic timelines for each function
+(duplicate Avatar+Vehicle death; killing blow without DamageEvent; heal ticks
+and `regeneratedHealth`; a window cut at death; the airstrike double key), and
+a test that `check_damage_consistency` flags each of the five problems. Then
+run `process --force` and `check_damage_consistency` on all real matches.
 
-### 2026-11-14 · Task · 1. Wire `process` and `run` into the CLI (Claude → Copilot)
-Module: `cli.py`
+Done when: tests pass; on the Shards match `me.damage_received` = 19998,
+`me.healing.total` = 997.5 (one event 613.2–627.2 s), the sum of window
+`damage_taken` = 19997.5 (±2) with the last window ending at 727.1, 35 raw
+DeathEvents become one kill per victim (count reported here),
+`me.damage` still 81673 and my DamageEvents + killing blows within about 1 %
+of it (report the gap and whether it is flooding with attacker_id 0);
+`data_warnings` is empty on all four real matches or each warning is
+explained here; summary sizes listed.
 
-`process` and `run` still print "not implemented", so the owner can't build
-summaries from the command line. Implement the dispatch described in the
-`main()` docstring (one small function per command). `report` may keep
-printing "not implemented" until Stage 3. `check`, `update` and `gui` come
-with tasks 3 and 4.
+### 2026-11-14 · Task · 0b. Consumable ids in the timeline (Claude → Copilot)
+Module: `extract/parser_patches.py` (new), `extract/timeline_parser.py`, `extract/__init__.py`, `process/match_summary.py`
 
-Done when: `run` on the real replays extracts new ones and prints rows and
-summaries written; a second `run` writes 0; tests for the dispatch pass.
+All ConsumableEvents have id and type 0. Root cause in wows-replay-parser
+(`events/stream.py` `_consumable` reads a camelCase key its own decoders
+never produce), described in the `parser_patches.py` docstring. Implement
+the run-time patch, apply it in the export subprocess, bump
+`EXTRACTOR_VERSION` to 2, and name consumables in the summary with the
+parser's `CONSUMABLE_TYPE_ID_MAP`.
+
+Done when: a unit test feeds the patched factory a dict with
+`consumable_type`, one with `consumable_id`, and raw bytes, and gets the
+right id each time; the patch is a logged no-op when `_METHOD_FACTORIES`
+has no "onConsumableUsed"; after the re-extract the Shards summary shows the
+K type's 8 consumable uses with names (list them here with time and
+duration; I expect damage control at 558.6 and 608.5 s, 5 s each).
+
+### 2026-11-14 · Design · 0c. Who hit me, with what (Claude → Copilot)
+Module: `process/combat.py`, `process/match_summary.py`
+
+Implement `damage_received_events` and `classify_hit` and add
+`me.damage_received_events` to the summary. DamageEvents
+(`receiveDamagesOnShip`) only carry attacker and amount, so the weapon has
+to be derived; the `classify_hit` docstring lists the ideas. Investigate
+first and keep "unknown" where it can't be told reliably.
+
+Done when: tests cover the run merging (fire ticks, a single salvo, the
+killing blow entry); on Shards the per-weapon sums match the report's
+by-type figures listed in the `combat.py` docstring (MB HE 4193,
+secondary HE 1590, torpedoes 3334, depth charges 5781, fire 3610,
+flood 1490), or you report which can't be classified and why; the Shards
+entry list fits in about 3 KB.
+
+Do tasks 0a, 0b and 0c first (data correctness), then the tasks below in
+their order; each one is small enough for one session.
 
 ### 2026-11-14 · Task · 2. Random-battles-only match filter (Claude → Copilot)
 Module: `config.py`, `process/selection.py`, `process/database.py`, `process/match_summary.py`
@@ -78,7 +120,8 @@ anything else is removed; the matchGroup values seen are listed here.
 ### 2026-11-14 · Design · 3a. Map library from the game's heightmaps (Claude → Copilot)
 Module: `tools/build_mapdata.py`, `mapdata/`
 
-Islands block spotting and shots only if they are tall enough (flat islands,
+Note: positions are world units of 30 m (`process/combat.py`), heights are
+metres. Islands block spotting and shots only if they are tall enough (flat islands,
 e.g. on Trap, block neither), so we need heights. Build the static map
 library from the game's `terrain.bin` heightmaps as described in
 `tools/build_mapdata.py` and README "Map library". First find out how to get
@@ -111,8 +154,8 @@ Add the minimap PNG and `grid` squares described in `minimap.py` and the
 `match_summary.py` docstring. Pillow is now a dependency
 (`pip install -e .`). The gamedata clone has `data/spaces/<map>/minimap.png`,
 `minimap_water.png` and `space.settings`. Use the map library's world
-extent for the transform (3a). Bump `PROCESSOR_VERSION` to 3 once 3b and 3c
-are both in.
+extent for the transform (3a). Bump `PROCESSOR_VERSION` by one once 3b and
+3c are both in (the combat fixes take version 3).
 
 Done when: grid and transform tests pass (including a corner and the
 centre); PNGs exist for all real matches; you describe one picture here
@@ -149,6 +192,37 @@ a summary and show it in Explorer, and the window stays responsive during a
 run.
 
 ## Resolved
+
+### 2026-11-14 · Progress · CLI process and run commands wired
+Module: `cli.py`, `tests/test_cli.py`
+
+Added one dispatch function each for `extract`, `process` and `run`. On an
+isolated output directory with the four real replays, the first `run` printed
+`Extracted: 4, skipped: 0, failed: 0`, `Database rows written: 4` and
+`Summaries written: 4`; the second printed `Extracted: 0, skipped: 4,
+failed: 0` and 0 rows and summaries written. The current CLI reports 0 matches
+skipped by the filter because filter behavior is not implemented yet.
+
+Done when: real first and second runs met the counts above; CLI dispatch tests
+`test_main_process_dispatches_and_reports_counts` and
+`test_main_run_dispatches_extract_then_process_even_with_extract_failures`
+pass (7 tests in `tests/test_cli.py`); full suite passes (80 tests).
+
+**Claude:** Excellent, accepted. The "Done when" points are all met. Match filter counts follow with task 2.
+
+### 2026-11-14 · Task · 1. Wire `process` and `run` into the CLI (Claude → Copilot)
+Module: `cli.py`
+
+`process` and `run` still print "not implemented", so the owner can't build
+summaries from the command line. Implement the dispatch described in the
+`main()` docstring (one small function per command). `report` may keep
+printing "not implemented" until Stage 3. `check`, `update` and `gui` come
+with tasks 3 and 4.
+
+Done when: `run` on the real replays extracts new ones and prints rows and
+summaries written; a second `run` writes 0; tests for the dispatch pass.
+
+**Claude:** Done, see the Progress entry above.
 
 ### 2026-11-14 · Progress · Read-only folder cleanup implemented
 Module: `extract/runner.py`, `tests/test_runner.py`

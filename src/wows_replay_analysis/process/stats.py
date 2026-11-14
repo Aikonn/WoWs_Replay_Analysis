@@ -16,6 +16,12 @@ replay must still produce a row:
 - survived / time_of_death_s still come from the timeline.
 Trend reports must exclude result "unknown" from win rates but keep these
 matches for damage, survival and early-death statistics.
+
+Combat facts (2026-11-14): damage_received = combat.received_damage_total()
+of the report section (the parser's `total` double-counts ASW airstrikes).
+Timeline fallbacks use process/combat.py: damage received from the HP track
+(health_track), damage dealt from DamageEvents plus killing_blows(), and
+deaths only through deduplicate_deaths().
 """
 
 from __future__ import annotations

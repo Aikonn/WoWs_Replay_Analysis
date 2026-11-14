@@ -36,7 +36,8 @@ def export_timeline(replay_path: Path, entity_defs_dir: Path, output_gz: Path,
     so it works inside a virtualenv on Windows. `python -m wows_replay_parser.cli`
     does NOT work: that module defines main() but has no `__main__` entry point,
     so it exits without exporting. Instead it runs
-    `sys.executable -c "from wows_replay_parser.cli import main; main()" export ...`.
+    `sys.executable -c "<apply parser_patches>; from wows_replay_parser.cli import main; main()" export ...`
+    (see extract/parser_patches.py for the exact code and why).
     Its stdout/stderr are captured, so the parser's own log noise stays out of
     the console. Raise an exception with the parser's stderr if it fails.
     """

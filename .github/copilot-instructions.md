@@ -87,6 +87,12 @@ real level of comments:
 - Ships: readable `ship` name plus internal `ship_id` (see `readable_ship_name`).
 - `decided_by` is derived from the data, never from guessed `victory_type` codes.
 - Keep summaries under about 50 KB.
+- Combat numbers come only from `process/combat.py`: never use the
+  parser's damage-received `total`, never sum DamageEvents without adding
+  killing blows, read deaths only through `deduplicate_deaths()`, and
+  report distances in km (`world_to_km`; 1 world unit = 30 m).
+- Never present a guess as data: unknown weapons are `"unknown"`, unknown
+  consumables have a null name.
 - Replays can end early (player left after dying, or disconnected). Missing
   report sections (battle_result, battle_results_beta) are normal, not
   errors: fall back to the timeline, set result "unknown" and mark the
@@ -125,7 +131,11 @@ real level of comments:
 - wows-replay-parser: run its export CLI as a subprocess. It needs the gamedata
   clone checked out at the tag that matches the replay's build.
   `python -m wows_replay_parser.cli` does nothing (no `__main__` entry point);
-  call it as `sys.executable -c "from wows_replay_parser.cli import main; main()" export ...`.
+  call it as `sys.executable -c "<apply parser_patches>; from wows_replay_parser.cli import main; main()" export ...`
+  (exact code in `extract/parser_patches.py`).
+- wows-replay-parser bugs are patched at run time in
+  `extract/parser_patches.py` (applied in the export subprocess). A patch
+  that no longer matches the parser must log and do nothing, never fail.
 - Parser log noise: replays_unpack logs many unknown-packet INFO lines and
   short-`shipConfigDump` warnings. They are not errors. The CLI keeps parser
   loggers at ERROR unless `--verbose` (see `cli.quiet_parser_logs`).

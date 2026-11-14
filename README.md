@@ -80,6 +80,7 @@ Evaluated on 2026-11-14 with two real replays from game version 15.10.0 (build 1
 - CLI used: `wowsreplay export <replay> --gamedata <gamedata>/data/scripts_entity/entity_defs -o <out.json>`.
   The tool calls it as `python -c "from wows_replay_parser.cli import main; main()" export ...`
   with the same interpreter, because `python -m wows_replay_parser.cli` has no entry point and does nothing.
+  Before `main()` the same code applies our run-time fixes (`extract/parser_patches.py`).
 
 ### Not used
 
@@ -142,6 +143,29 @@ heights, not just outlines.
   summary shows a readable form (`K type`) and keeps the internal one.
 - **How the match was decided** (`decided_by`) is derived from the data:
   all ships of one team destroyed, points, or time.
+
+### Data pitfalls found on real replays (2026-11-14)
+
+Checked against the Shards replay of 2026-11-13; details and verified numbers
+are in `process/combat.py`.
+
+- **Damage received total**: replays_unpack sums every `received_damage_*`
+  key, and the game reports ASW airstrike damage under two keys
+  (`dbomb_airsupport` and `adbomb`). We sum the by-type figures instead.
+- **Killing blows have no damage event.** The game sends only the death.
+  Damage taken comes from the ship's HP track (`health` updates), and
+  damage dealt adds each victim's last HP to the killer.
+- **Healing** shows only as HP rises and the `regeneratedHealth` property.
+- **Every kill can appear twice** in the timeline (Avatar and Vehicle
+  messages). We keep one per victim, the Avatar one.
+- **Positions are world units of 30 m.** Distances are reported in km.
+- **Consumable ids are 0** in the timeline because of a key mismatch in
+  wows-replay-parser. Stage 1 patches it at run time
+  (`extract/parser_patches.py`).
+- **Damage events have no weapon type.** The attacker is known; the weapon
+  is derived from shots, torpedoes and tick patterns where possible.
+- Every summary runs consistency checks (totals add up, no duplicate kills)
+  and lists any problems in `match.data_warnings`.
 
 ## Incomplete replays
 
@@ -251,11 +275,13 @@ src/wows_replay_analysis/
         runner.py                 Finds replays, skips done ones, runs both parsers
         report_parser.py          replays_unpack wrapper (post-battle report)
         timeline_parser.py        wows-replay-parser wrapper (event timeline)
+        parser_patches.py         Run-time fixes for wows-replay-parser bugs
         gamedata.py               Keeps the gamedata clone on the right tag
     process/                      Stage 2
         raw_loader.py             Reads one raw extract
         selection.py              Match filter (random battles only by default)
         match_summary.py          Condensed single-match JSON
+        combat.py                 HP track, damage, healing, kills, distances
         minimap.py                Minimap picture per match
         terrain.py                Island heights, cover and line-of-sight facts
         stats.py                  One database row per match

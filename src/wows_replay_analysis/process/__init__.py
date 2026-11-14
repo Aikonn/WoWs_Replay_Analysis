@@ -6,4 +6,4 @@ rebuilt at any time.
 
 # Bump this whenever the summary format or the database schema changes.
 # Matches processed with a lower version are rebuilt.
-PROCESSOR_VERSION = 2  # bump to 3 with the minimap/grid summary change
+PROCESSOR_VERSION = 2  # 3: combat.py data fixes; 4: minimap/grid + islands (3b/3c)

@@ -52,6 +52,30 @@ Source mapping decisions (2026-11-14, after the first real run):
 - Keep the whole summary under about 50 KB; the first real ones were 48 KB,
   so new fields must not add much. Trim chat or samples before key events.
 
+Combat facts (2026-11-14, second review; see process/combat.py for the
+root causes and the verified numbers):
+- me.damage_received = combat.received_damage_total(damage_received_by_type),
+  never the parser's `total`; drop the `total` key from
+  damage_received_by_type (it is wrong and redundant).
+- me.healing = combat.healing_received() (null when none).
+- me.damage_received_events = combat.damage_received_events(): who hit me,
+  when, with what, how much. Ticks are merged, so it stays small.
+- events: kill events from combat.deduplicate_deaths() (one per victim),
+  with `death_reason` kept as a number. damage_summary windows from
+  combat.damage_windows() with damage_dealt, damage_taken and healed; the
+  window with my death ends at the time of death.
+- teams[].damage_timeline from combat.damage_dealt_by_ship() (now includes
+  killing blows; still an estimate).
+- timeline samples: nearest enemies get `distance_km`
+  (combat.world_to_km), not `distance_m`.
+- consumable events: `consumable` = the type name from
+  wows_replay_parser.consumable_calc.CONSUMABLE_TYPE_ID_MAP (e.g.
+  "crashCrew"), plus `duration_s` (work_time_left); drop consumable_id /
+  consumable_type. Name null when the id is unknown. Needs a re-extract
+  (EXTRACTOR_VERSION 2, see extract/parser_patches.py).
+- match.data_warnings: the list from combat.check_damage_consistency(),
+  left out when empty, so the AI knows when numbers don't add up.
+
 Minimap and map grid (2026-11-14, see process/minimap.py):
 - build_all_summaries also renders data/matches/<match_id>.png with
   minimap.render_minimap() and sets match.minimap = "<match_id>.png" (null if
