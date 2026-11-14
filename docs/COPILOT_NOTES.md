@@ -32,80 +32,20 @@ the entry to **Resolved**.
 
 ## Open
 
-### 2026-11-14 · Progress · Task 0b combat data fixes
-Module: `process/combat.py`, `process/match_summary.py`, `process/stats.py`
+### 2026-11-14 · Task · 0b-fix. Damage dealt after death; readable enemy ships (Claude → Copilot)
+Module: `process/combat.py`, `process/match_summary.py`
 
-- Full suite: **102 passed**. Shipped `PROCESSOR_VERSION = 3`.
-- `python -m wows_replay_analysis process --force`: **4 database rows and 4
-  summaries written; 0 skipped by the match filter**. All four saved
-  summaries have no `data_warnings`.
-- Shards (`20261113_184244_PRSS110-K-type_23_Shards`; battle start **32.35 s**):
-  healing **997.5** in one battle-time event, **580.9–594.9 s**; damage
-  windows total **19,997.5** damage taken and the last ends at **694.7 s**.
-  The **35** raw deaths deduplicate to **19** unique victims and **19** kill
-  events.
-- Shards damage dealt is **81,673** in the report. My DamageEvents (**79,302.9**)
-  plus killing blows (**1,601.6**) total **80,904.5**, a gap of **768.5
-  (0.941%)**, within 1%. There are **29** `attacker_id = 0` DamageEvents
-  (**1,442** damage) against six other ships and none against Med_1024. They
-  do not explain this player's gap; the timeline has no weapon label, so I
-  cannot reliably identify them as flooding.
-- Incomplete Sleeping Giant teams now have ship, class and tier for all
-  **24/24** players from the gamedata ship index. Timeline samples are aligned
-  to battle time, pre-battle samples are dropped, and the repeated
-  `max_health` field was removed from samples.
-- Saved summary sizes (all under 50,000 bytes): Libertad **25,993 B**;
-  Sleeping Giant **27,107 B**; Shards **42,431 B**; OC_prey **42,420 B**.
+1. Implement the corrected death rule in the `damage_windows` docstring
+   (split the death window, keep damage dealt after death with
+   `after_death: true`) and the new check 6 in `check_damage_consistency`.
+2. Timeline `nearest_enemies[].ship` shows internal ids
+   (`PHSB710_Willem_de_Eerste`); use `readable_ship_name` like elsewhere.
 
-### 2026-11-14 · Task · 0b. Combat data fixes (Claude → Copilot)
-Module: `process/combat.py` (new), `process/match_summary.py`, `process/stats.py`
-
-The owner discussed the Shards summary (`20261113_184244_PRSS110-K-type_23_Shards`)
-with an AI and found wrong numbers. I traced each one to its root cause on the
-real raw data; the causes and the verified per-hit numbers are in the
-`combat.py` module docstring. In short: the parser's damage-received `total`
-double-counts ASW airstrikes, killing blows have no DamageEvent, healing is
-invisible to DamageEvents, every nearby kill appears twice (Avatar and Vehicle
-DeathEvent), and distances are world units (30 m), not metres.
-
-Builds on 0a. Implement in `combat.py`: `world_to_km`, `battle_start_s`,
-`battle_time`, `health_track`, `deduplicate_deaths`, `killing_blows`, `damage_dealt_by_ship`,
-`damage_windows`, `healing_received`, `check_damage_consistency`. Wire them
-into `match_summary.py` and `stats.py` as the "Combat facts" parts of their
-module docstrings say (replace `_damage_by_ship`, `_damage_totals` and the
-bucket code in `_build_events`; deaths in `stats.py` and `decided_by` go
-through `deduplicate_deaths`). Bump `PROCESSOR_VERSION` to 3 (one bump for
-0a and 0b together).
-`damage_received_events` / `classify_hit` are task 0d; leave
-`me.damage_received_events` out until then.
-
-Regression check: unit tests on small synthetic timelines for each function
-(duplicate Avatar+Vehicle death; killing blow without DamageEvent; heal ticks
-and `regeneratedHealth`; a window cut at death; battle start from a
-`timeLeft` countdown), and
-a test that `check_damage_consistency` flags each of the five problems. Then
-run `process --force` and `check_damage_consistency` on all real matches.
-
-Also, from the 0a review:
-- Timeline samples: pick the snapshot nearest to battle times 0, 30, 60, ...
-  (now they sit on the recording-time grid: -2.3, 27.7, ...). Drop samples
-  before the battle start.
-- Size: Shards is 51.7 KB and OC_prey 51.3 KB, over the ~50 KB target, and
-  0d adds more. Trim as the `match_summary.py` docstring says (chat or
-  samples before key events), e.g. drop `max_health` from samples (it never
-  changes; put it once in `me`) and round headings to whole degrees.
-- Incomplete replays: teams[] have ship, class and tier null (Sleeping
-  Giant). Fill them from timeline.players `ship_id` (GameParams id) via
-  the gamedata clone if it has a ship index; otherwise say so here.
-
-Done when: tests pass; on the Shards match (battle time, start 32.35 s)
-`me.healing.total` = 997.5 (one event 580.9–594.9 s), the sum of window
-`damage_taken` = 19997.5 (±2) with the last window ending at 694.7, 35 raw
-DeathEvents become one kill per victim (count reported here),
-`me.damage` still 81673 and my DamageEvents + killing blows within about 1 %
-of it (report the gap and whether it is flooding with attacker_id 0);
-`data_warnings` is empty on all four real matches or each warning is
-explained here; all summaries under 50 KB (sizes listed).
+Done when: a test with a DamageEvent after the death keeps it in an
+`after_death` window and check 6 flags a summary whose windows miss more
+than 2 %; on Shards the window `damage_dealt` sum is 80,904.5 (±1) and
+`data_warnings` stays empty on all four matches; one Shards sample's
+nearest enemies listed here with readable names.
 
 ### 2026-11-14 · Task · 0c. Consumable ids in the timeline (Claude → Copilot)
 Module: `extract/parser_patches.py` (new), `extract/timeline_parser.py`, `extract/__init__.py`, `process/match_summary.py`
@@ -232,6 +172,92 @@ a summary and show it in Explorer, and the window stays responsive during a
 run.
 
 ## Resolved
+
+### 2026-11-14 · Progress · Task 0b combat data fixes
+Module: `process/combat.py`, `process/match_summary.py`, `process/stats.py`
+
+- Full suite: **102 passed**. Shipped `PROCESSOR_VERSION = 3`.
+- `python -m wows_replay_analysis process --force`: **4 database rows and 4
+  summaries written; 0 skipped by the match filter**. All four saved
+  summaries have no `data_warnings`.
+- Shards (`20261113_184244_PRSS110-K-type_23_Shards`; battle start **32.35 s**):
+  healing **997.5** in one battle-time event, **580.9–594.9 s**; damage
+  windows total **19,997.5** damage taken and the last ends at **694.7 s**.
+  The **35** raw deaths deduplicate to **19** unique victims and **19** kill
+  events.
+- Shards damage dealt is **81,673** in the report. My DamageEvents (**79,302.9**)
+  plus killing blows (**1,601.6**) total **80,904.5**, a gap of **768.5
+  (0.941%)**, within 1%. There are **29** `attacker_id = 0` DamageEvents
+  (**1,442** damage) against six other ships and none against Med_1024. They
+  do not explain this player's gap; the timeline has no weapon label, so I
+  cannot reliably identify them as flooding.
+- Incomplete Sleeping Giant teams now have ship, class and tier for all
+  **24/24** players from the gamedata ship index. Timeline samples are aligned
+  to battle time, pre-battle samples are dropped, and the repeated
+  `max_health` field was removed from samples.
+- Saved summary sizes (all under 50,000 bytes): Libertad **25,993 B**;
+  Sleeping Giant **27,107 B**; Shards **42,431 B**; OC_prey **42,420 B**.
+
+**Claude:** Very good, accepted with one bug fix. I checked the summaries on
+the owner's PC: healing, windows, deaths, sizes and the incomplete-replay
+ship names are all right. The 0.94 % gap is fine (the attacker-0 ticks are
+probably flooding; 0d may tell). But the Shards windows' `damage_dealt` adds
+up to only 67,004 of 81,673: damage I dealt after my death (torpedo hit at
+710.0 s and my flood ticks, 13,901) is dropped, because all windows stop at
+the death. My docstring was ambiguous there; it is now clear. See the new
+task 0b-fix.
+
+### 2026-11-14 · Task · 0b. Combat data fixes (Claude → Copilot)
+Module: `process/combat.py` (new), `process/match_summary.py`, `process/stats.py`
+
+The owner discussed the Shards summary (`20261113_184244_PRSS110-K-type_23_Shards`)
+with an AI and found wrong numbers. I traced each one to its root cause on the
+real raw data; the causes and the verified per-hit numbers are in the
+`combat.py` module docstring. In short: the parser's damage-received `total`
+double-counts ASW airstrikes, killing blows have no DamageEvent, healing is
+invisible to DamageEvents, every nearby kill appears twice (Avatar and Vehicle
+DeathEvent), and distances are world units (30 m), not metres.
+
+Builds on 0a. Implement in `combat.py`: `world_to_km`, `battle_start_s`,
+`battle_time`, `health_track`, `deduplicate_deaths`, `killing_blows`, `damage_dealt_by_ship`,
+`damage_windows`, `healing_received`, `check_damage_consistency`. Wire them
+into `match_summary.py` and `stats.py` as the "Combat facts" parts of their
+module docstrings say (replace `_damage_by_ship`, `_damage_totals` and the
+bucket code in `_build_events`; deaths in `stats.py` and `decided_by` go
+through `deduplicate_deaths`). Bump `PROCESSOR_VERSION` to 3 (one bump for
+0a and 0b together).
+`damage_received_events` / `classify_hit` are task 0d; leave
+`me.damage_received_events` out until then.
+
+Regression check: unit tests on small synthetic timelines for each function
+(duplicate Avatar+Vehicle death; killing blow without DamageEvent; heal ticks
+and `regeneratedHealth`; a window cut at death; battle start from a
+`timeLeft` countdown), and
+a test that `check_damage_consistency` flags each of the five problems. Then
+run `process --force` and `check_damage_consistency` on all real matches.
+
+Also, from the 0a review:
+- Timeline samples: pick the snapshot nearest to battle times 0, 30, 60, ...
+  (now they sit on the recording-time grid: -2.3, 27.7, ...). Drop samples
+  before the battle start.
+- Size: Shards is 51.7 KB and OC_prey 51.3 KB, over the ~50 KB target, and
+  0d adds more. Trim as the `match_summary.py` docstring says (chat or
+  samples before key events), e.g. drop `max_health` from samples (it never
+  changes; put it once in `me`) and round headings to whole degrees.
+- Incomplete replays: teams[] have ship, class and tier null (Sleeping
+  Giant). Fill them from timeline.players `ship_id` (GameParams id) via
+  the gamedata clone if it has a ship index; otherwise say so here.
+
+Done when: tests pass; on the Shards match (battle time, start 32.35 s)
+`me.healing.total` = 997.5 (one event 580.9–594.9 s), the sum of window
+`damage_taken` = 19997.5 (±2) with the last window ending at 694.7, 35 raw
+DeathEvents become one kill per victim (count reported here),
+`me.damage` still 81673 and my DamageEvents + killing blows within about 1 %
+of it (report the gap and whether it is flooding with attacker_id 0);
+`data_warnings` is empty on all four real matches or each warning is
+explained here; all summaries under 50 KB (sizes listed).
+
+**Claude:** Done, see the Progress entry above.
 
 ### 2026-11-14 · Progress · Task 0a exact results and battle time
 Module: `process/public_results.py`, `process/combat.py`, `process/match_summary.py`, `process/stats.py`, `process/database.py`

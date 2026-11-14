@@ -289,9 +289,13 @@ def damage_windows(
     - damage_taken / healed: the sum of HP drops / rises in health_track()
       inside the window (this includes the killing blow).
     - damage_dealt: my DamageEvents plus my killing_blows() in the window.
-    - The window that contains the player's death ends at the time of death
-      (end_s = time of death, rounded to 0.1), and no window follows it for
-      taken/healed. `end_s` caps the last window the same way.
+    - Death: the window that contains it is split at the time of death
+      (rounded to 0.1). Everything up to the death stays in the first part.
+      Damage I deal after my death (torpedoes still running, flooding I
+      caused) goes into the second part and the following windows as usual,
+      with damage_taken 0, healed 0 and "after_death": true. Never drop it:
+      the report counts it (Shards: 13,901 after death, torpedo hit at
+      710.0 s plus flood ticks). `end_s` caps the last window.
     Checks (see check_damage_consistency): sum(damage_taken) - sum(healed)
     == max_health - final HP.
     """
@@ -520,6 +524,8 @@ def check_damage_consistency(summary: dict) -> list[str]:
        replay is complete or the player died while recording).
     4. no two kill events with the same victim.
     5. me.frags == number of kill events with me as killer.
+    6. sum of damage_summary damage_dealt within 2 % of me.damage (complete
+       replays only; the timeline misses a little, Shards 0.94 %).
     """
     problems: list[str] = []
     match = summary.get("match")
