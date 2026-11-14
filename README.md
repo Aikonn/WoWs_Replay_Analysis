@@ -109,8 +109,29 @@ position in the JSON also carries its grid square (`"E5"`, rows A–J top to
 bottom, columns 1–10 left to right, as on the in-game minimap), so the AI can
 read the text and the picture together. Give the AI both files.
 
-Chosen over computing "behind an island" flags from map geometry: much
-simpler, and a vision-capable AI can judge cover itself.
+## Map library
+
+Islands block both spotting and shots, but only if they are tall enough:
+very flat islands (e.g. on Trap) block neither. So the tool needs island
+heights, not just outlines.
+
+- **Source:** the game's own terrain heightmaps (`terrain.bin` per map, in
+  the game's packed resources, heights in metres). The format is documented
+  by landaire's `wowsunpack` (wows-toolkit). No ready-made vector map data
+  was found online.
+- **Static library:** `tools/build_mapdata.py` reads the installed game and
+  writes `mapdata/<map>.json.gz` per map: world extent, a height grid
+  (max 256 x 256, metres) and the islands (simplified outline, max height,
+  grid squares). The files are committed; the owner reruns the generator
+  only when random battles get new or reworked maps.
+- **Use in Stage 2** (`process/terrain.py`): the AI is poor at geometry from
+  raw coordinates, so Stage 2 computes facts and the summary states them:
+  the blocking islands (grid squares, height), my nearest island per
+  timeline sample, and for each nearby enemy whether an island blocks the
+  line between us. The picture shows the shapes.
+- **Blocking rule:** a line is blocked where the terrain along it rises
+  above `BLOCK_HEIGHT_M`. The value is calibrated on real replays by
+  comparing the rule with the timeline's spotting data.
 
 ## Single-match summary sources
 
@@ -235,12 +256,15 @@ src/wows_replay_analysis/
         selection.py              Match filter (random battles only by default)
         match_summary.py          Condensed single-match JSON
         minimap.py                Minimap picture per match
+        terrain.py                Island heights, cover and line-of-sight facts
         stats.py                  One database row per match
         database.py               SQLite schema and writes
     report/                       Stage 3
         html_report.py            HTML trend report
 docs/COPILOT_NOTES.md             Messages between Copilot and Claude
 install.bat, start_gui.bat        Setup and launcher for non-developers
+mapdata/<map>.json.gz             Map library (committed static data)
+tools/build_mapdata.py            Generates the map library from the game
 tests/                            pytest tests
 ```
 

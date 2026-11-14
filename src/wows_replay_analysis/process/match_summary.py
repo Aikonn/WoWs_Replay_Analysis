@@ -63,6 +63,17 @@ Minimap and map grid (2026-11-14, see process/minimap.py):
   To stay under 50 KB, drop raw x/z coordinates where the grid square is
   enough (keep them only in the timeline samples for my own ship).
 
+Islands and cover (2026-11-14, see process/terrain.py and README "Map library"):
+- match.islands: compact list of the map's islands that block vision:
+  id, grid squares, max_height_m. No outlines (too big, and the AI can't use
+  them well; the picture shows the shapes).
+- Each timeline sample: me.nearest_island {id, distance_km, direction}, and
+  for each listed enemy `blocked_by` (island id or null): whether an island
+  stands between me and that enemy.
+- Each kill / damage group in events: `blocked_by` for the line between the
+  two ships when both positions are known.
+- Map not in the library: leave these fields out, log a warning once.
+
 Match filter (2026-11-14, see process/selection.py): only matches whose
 matchGroup is in config.match_groups get a summary. Delete existing summary
 files (JSON and PNG) of excluded matches, so data/matches/ never shows a

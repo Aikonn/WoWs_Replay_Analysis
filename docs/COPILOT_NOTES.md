@@ -60,22 +60,49 @@ Done when: tests cover included / excluded / missing matchGroup and the
 config parsing; on the real data all random battles are processed and
 anything else is removed; the matchGroup values seen are listed here.
 
-### 2026-11-14 · Design · 3. Minimap picture and grid squares (Claude → Copilot)
+### 2026-11-14 · Design · 3a. Map library from the game's heightmaps (Claude → Copilot)
+Module: `tools/build_mapdata.py`, `mapdata/`
+
+Islands block spotting and shots only if they are tall enough (flat islands,
+e.g. on Trap, block neither), so we need heights. Build the static map
+library from the game's `terrain.bin` heightmaps as described in
+`tools/build_mapdata.py` and README "Map library". First find out how to get
+`terrain.bin` out of the game packages on the owner's PC and report it here
+before writing much code. If it turns out to be impractical, say so; the
+fallback is outlines traced from the gamedata `minimap.png` (no heights).
+
+Done when: tests for `parse_terrain` (small synthetic RLE sample) and the
+island extraction pass; library files exist for the maps of the real
+replays; for one map you describe the overlay check against `minimap.png`
+(do the outlines match?) and list its islands with max heights, including
+whether flat islands come out low.
+
+### 2026-11-14 · Design · 3b. Island cover facts in the summary (Claude → Copilot)
+Module: `process/terrain.py`, `process/match_summary.py`
+
+Implement `terrain.py` and the summary fields in the "Islands and cover"
+part of the `match_summary.py` docstring. Then run `is_blocked_check` on all
+real replays and propose `BLOCK_HEIGHT_M` from the results.
+
+Done when: tests for `height_at`, `blocking_island` and `nearest_island`
+pass on a small synthetic map; the calibration table (agreement per
+threshold) and a few disagreement examples are reported here; summaries
+stay under ~50 KB (give the sizes).
+
+### 2026-11-14 · Design · 3c. Minimap picture and grid squares (Claude → Copilot)
 Module: `process/minimap.py`, `process/match_summary.py`, `pyproject.toml`
 
 Add the minimap PNG and `grid` squares described in `minimap.py` and the
 `match_summary.py` docstring. Pillow is now a dependency
-(`pip install -e .`). Verified: the gamedata clone has
-`data/spaces/<map>/minimap.png`, `minimap_water.png` and `space.settings`
-(58 maps with images at HEAD). The world-to-image formula is **not**
-verified yet: derive it from `space.settings` bounds, check it as described
-in the docstring, and write the final formula into the docstring and here.
-Bump `PROCESSOR_VERSION` to 3.
+(`pip install -e .`). The gamedata clone has `data/spaces/<map>/minimap.png`,
+`minimap_water.png` and `space.settings`. Use the map library's world
+extent for the transform (3a). Bump `PROCESSOR_VERSION` to 3 once 3b and 3c
+are both in.
 
 Done when: grid and transform tests pass (including a corner and the
 centre); PNGs exist for all real matches; you describe one picture here
-(do the tracks stay on water, spawns near the edges, does it match
-wows-toolkit); summaries stay under ~50 KB (give the sizes).
+(tracks stay on water, spawns near the edges, islands line up with the map
+library outlines).
 
 ### 2026-11-14 · Design · 4. Update check and self-update (Claude → Copilot)
 Module: `updates.py`, `cli.py`, `config.py`

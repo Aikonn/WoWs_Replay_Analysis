@@ -101,6 +101,10 @@ real level of comments:
 - Every position in a match summary carries a `grid` square ("E5"). The
   minimap PNG sits next to the JSON. A missing map folder logs a warning and
   sets `minimap: null`; it never fails the summary.
+- Island cover facts come only from `process/terrain.py` and the committed
+  map library (`mapdata/`). Islands block spotting and shots only above
+  `BLOCK_HEIGHT_M`; don't assume all land blocks. A map missing from the
+  library must never fail processing.
 - `updates.py`: every network call has a timeout; a failed check returns
   state "unknown" and never raises into extraction or processing. A tool
   update never touches `PRESERVED` names and never runs in a folder that

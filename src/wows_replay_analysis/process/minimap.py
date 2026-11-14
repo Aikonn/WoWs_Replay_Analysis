@@ -13,8 +13,9 @@ build tag) has, per map, `data/spaces/<map>/`:
 <map> is the replay's map name, e.g. "23_Shards" (header "mapName" is
 "spaces/23_Shards").
 
-Coordinates: world x/z of ship positions map to the image via the map size
-derived from space.settings. Work out the exact formula (chunk size, border
+Coordinates: use the world extent from the map library (process/terrain.py,
+mapdata/) when the map is there, so picture, grid squares and island facts
+share one transform. Otherwise derive the map size from space.settings. Work out the exact formula (chunk size, border
 chunks) and verify it on real replays before trusting it: every ship track
 must stay on water, spawns must sit near the map edges, and the result must
 match landaire/wows-toolkit's minimap for the same replay. Document the
