@@ -262,6 +262,7 @@ src/wows_replay_analysis/
         database.py               SQLite schema and writes
     report/                       Stage 3
         html_report.py            HTML trend report
+LICENSE                           MIT license
 docs/COPILOT_NOTES.md             Messages between Copilot and Claude
 install.bat, start_gui.bat        Setup and launcher for non-developers
 mapdata/<map>.json.gz             Map library (committed static data)
@@ -312,3 +313,11 @@ Existing community tools (for example, replay parsers) should be used wherever p
 
 - **Claude:** goals and design discussions; writes and maintains the README and instruction files; sets up the code structure (function signatures and docstrings).
 - **GitHub Copilot:** implements the functions, following `.github/copilot-instructions.md`. Functions still to be written raise `NotImplementedError`. Copilot reports proposals, questions, issues and progress in `docs/COPILOT_NOTES.md`.
+
+## License
+
+MIT, see `LICENSE`. Third-party parts keep their own licenses: replays_unpack
+(MIT), wows-replay-parser (Apache 2.0), wows-render-gamedata (data extracted
+from the game). The map library in `mapdata/` is derived from World of
+Warships game files, which belong to Wargaming; it is included for
+non-commercial, fan-project use only.

@@ -7,6 +7,7 @@ name = "wows-replay-analysis"
 version = "0.1.0"
 description = "Extracts World of Warships replay data for AI-led match discussions and trend reports."
 readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.11"
 dependencies = [
     # Post-battle report parser (install from GitHub: the PyPI release lags behind game versions).
