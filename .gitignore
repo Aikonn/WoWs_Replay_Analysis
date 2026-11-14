@@ -3,6 +3,8 @@
 
 # Local configuration (each user has their own)
 /config.toml
+# Personal VS Code settings (incl. Copilot terminal auto-approve list)
+/.vscode/settings.json
 /.installed_commit
 
 # Generated data and caches
