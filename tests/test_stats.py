@@ -5,6 +5,7 @@ import json
 import pytest
 
 from wows_replay_analysis.process import PROCESSOR_VERSION
+from wows_replay_analysis.process import stats as stats_module
 from wows_replay_analysis.process.raw_loader import RawMatch
 from wows_replay_analysis.process.stats import match_stats_row, replay_end
 
@@ -136,6 +137,7 @@ def test_match_stats_row_maps_report_and_timeline_fields() -> None:
         "spotting_damage": 6000,
         "potential_damage": 250000.5,
         "damage_received": 12000,
+        "distance_km": None,
         "base_xp": 1400,
         "planes_killed": 3,
         "capture_points": 12,
@@ -156,6 +158,63 @@ def test_match_stats_row_uses_report_duration_without_timeline() -> None:
     assert row["duration_s"] == 1200.0
     assert row["time_of_death_s"] is None
     assert row["recorded_s"] == 1200.0
+    assert row["distance_km"] is None
+
+
+def test_match_stats_row_prefers_public_results_and_uses_battle_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw = make_raw(
+        timeline={
+            "meta": {"duration": 803.67},
+            "events": [
+                {
+                    "event_type": "PropertyUpdateEvent",
+                    "entity_type": "BattleLogic",
+                    "property_name": "timeLeft",
+                    "value": 0,
+                    "timestamp": 31.4,
+                },
+                {
+                    "event_type": "PropertyUpdateEvent",
+                    "entity_type": "BattleLogic",
+                    "property_name": "timeLeft",
+                    "value": 1200,
+                    "timestamp": 32.35,
+                },
+                {"event_type": "DeathEvent", "victim_id": 200, "timestamp": 727.08},
+                {"event_type": "PositionEvent", "timestamp": 803.67},
+            ],
+        }
+    )
+    public_row = {
+        "account_db_id": 1,
+        "name": "Captain",
+        "team_id": 0,
+        "damage": 81673,
+        "scouting_damage": 39511,
+        "agro_art": 192900.0,
+        "agro_tpd": 92330.0,
+        "agro_air": 0,
+        "agro_dbomb": 0,
+        "ships_killed": 1,
+        "life_time_sec": 694,
+        "distance": 58.38245141185819,
+        "received_damage_adbomb": 5781,
+        "received_damage_dbomb_airsupport": 5781,
+    }
+    monkeypatch.setattr(stats_module, "public_results", lambda _: {"Captain": public_row})
+
+    row = match_stats_row(raw)
+
+    assert row["damage"] == 81673
+    assert row["spotting_damage"] == 39511
+    assert row["potential_damage"] == 285230
+    assert row["damage_received"] == 5781
+    assert row["distance_km"] == 58.38
+    assert row["duration_s"] == 771.3
+    assert row["time_of_death_s"] == 694.7
+    assert row["recorded_s"] == 771.3
 
 
 def test_match_stats_row_requires_report_or_timeline() -> None:

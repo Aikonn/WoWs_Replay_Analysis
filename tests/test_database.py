@@ -31,6 +31,7 @@ def sample_row(match_id: str, processor_version: int = PROCESSOR_VERSION) -> dic
         "frags": 2,
         "spotting_damage": 6000,
         "potential_damage": 200000.0,
+        "distance_km": 45.6,
         "damage_received": 12000,
         "base_xp": 1400,
         "planes_killed": 3,
@@ -63,6 +64,7 @@ def test_connect_creates_database_and_schema(tmp_path: Path) -> None:
         "end_reason",
         "recorded_s",
         "stats_source",
+        "distance_km",
     }.issubset(columns)
 
 
@@ -88,6 +90,7 @@ def test_connect_adds_incomplete_replay_columns_to_existing_database(
         "end_reason",
         "recorded_s",
         "stats_source",
+        "distance_km",
     }.issubset(columns)
 
 

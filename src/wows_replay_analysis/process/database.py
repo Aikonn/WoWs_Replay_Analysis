@@ -22,6 +22,7 @@ MIGRATION_COLUMNS = {
     "end_reason": "TEXT",
     "recorded_s": "REAL",
     "stats_source": "TEXT",
+    "distance_km": "REAL",
 }
 
 # First version of the schema. Add columns rather than rename them, and bump
@@ -47,6 +48,7 @@ CREATE TABLE IF NOT EXISTS matches (
     frags               INTEGER,
     spotting_damage     INTEGER,
     potential_damage    REAL,
+    distance_km         REAL,
     damage_received     INTEGER,
     base_xp             INTEGER,
     planes_killed       INTEGER,

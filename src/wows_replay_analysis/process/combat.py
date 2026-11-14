@@ -44,6 +44,8 @@ DamageEvents carry the attacker but no weapon (damage_type "", ammo_id 0).
 
 from __future__ import annotations
 
+from numbers import Real
+
 # BigWorld world unit in metres (see point 5 above). Use world_to_km() for
 # every distance in a summary; never print raw world-unit distances.
 WORLD_UNIT_M = 30.0
@@ -65,14 +67,52 @@ def battle_start_s(timeline: dict | None) -> float | None:
     becomes 0; that event's timestamp is the start (Shards: 32.35 s).
     None when not found.
     """
-    raise NotImplementedError
+    if not isinstance(timeline, dict):
+        return None
+    events = timeline.get("events")
+    if not isinstance(events, list):
+        return None
+
+    countdown_reached_zero = False
+    for event in events:
+        if not isinstance(event, dict) or event.get("entity_type") != "BattleLogic":
+            continue
+        value = event.get("value")
+        if (
+            event.get("property_name") == "timeLeft"
+            and isinstance(value, Real)
+            and not isinstance(value, bool)
+            and value == 0
+        ):
+            countdown_reached_zero = True
+        elif (
+            countdown_reached_zero
+            and event.get("property_name") == "timeLeft"
+            and isinstance(value, Real)
+            and not isinstance(value, bool)
+            and value > 0
+        ):
+            timestamp = event.get("timestamp")
+            if isinstance(timestamp, Real) and not isinstance(timestamp, bool):
+                return float(timestamp)
+        elif (
+            countdown_reached_zero
+            and event.get("property_name") == "battleStage"
+            and event.get("value") == 0
+        ):
+            timestamp = event.get("timestamp")
+            if isinstance(timestamp, Real) and not isinstance(timestamp, bool):
+                return float(timestamp)
+    return None
 
 
 def battle_time(recording_s: float, start_s: float | None) -> float:
     """Convert a recording time to battle time (seconds since battle start),
     rounded to 0.1. Negative during the countdown; unchanged when start_s is
     None."""
-    raise NotImplementedError
+    if start_s is None:
+        return recording_s
+    return round(recording_s - start_s, 1)
 
 
 def health_track(timeline: dict | None, ship_id: int) -> list[tuple[float, float]]:

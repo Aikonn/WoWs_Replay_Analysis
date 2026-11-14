@@ -128,6 +128,12 @@ from pathlib import Path
 
 from wows_replay_analysis.config import Config
 from wows_replay_analysis.process import PROCESSOR_VERSION
+from wows_replay_analysis.process.combat import battle_start_s, battle_time
+from wows_replay_analysis.process.public_results import (
+    player_numbers,
+    public_results,
+    received_damage_breakdown,
+)
 from wows_replay_analysis.process.raw_loader import RawMatch
 from wows_replay_analysis.process.raw_loader import list_raw_matches, load_raw_match, own_entity_ids
 from wows_replay_analysis.process.stats import match_stats_row
@@ -150,13 +156,18 @@ def build_match_summary(raw: RawMatch) -> dict:
     timeline = raw.timeline or {}
     timeline_meta = timeline.get("meta") if isinstance(timeline.get("meta"), dict) else {}
     stats = match_stats_row(raw) if raw.report is not None or raw.timeline is not None else {}
+    start_s = battle_start_s(timeline)
+    public_rows = public_results(raw)
+    public_numbers = {
+        name: player_numbers(row) for name, row in (public_rows or {}).items()
+    }
 
     players_by_id, players_by_account = _player_indexes(raw, hidden)
     own_ship_id, own_name = _own_player(raw, replay_info, players_by_id)
     own_player = players_by_id.get(own_ship_id) if own_ship_id is not None else None
     own_team = _own_team_id(hidden, own_player)
     event_summaries = _build_events(
-        timeline, own_ship_id, players_by_id, players_by_account, hidden
+        timeline, own_ship_id, players_by_id, players_by_account, hidden, start_s
     )
     own_timeline_damage = _damage_totals(timeline, own_ship_id)
     own_damage = stats.get("damage")
@@ -197,12 +208,18 @@ def build_match_summary(raw: RawMatch) -> dict:
         timeline,
         players_by_id,
         own_team,
-        own_ship_id,
-        own_damage,
         damage_by_ship,
+        public_numbers,
+        stats.get("replay_complete") == 0,
     )
+    own_name = stats.get("player_name") or own_name
+    own_public_numbers = public_numbers.get(own_name) if isinstance(own_name, str) else None
     damage_by_type = _section_data(hidden, "details", "damage_to_ships")
-    damage_received_by_type = _section_data(hidden, "details", "damage_received")
+    damage_received_by_type = (
+        received_damage_breakdown(public_rows[own_name])
+        if public_rows is not None and own_name in public_rows
+        else _section_data(hidden, "details", "damage_received")
+    )
     ribbons = _section_data(hidden, "personal_score", "ribbons")
     ribbon_counts: dict[str, int] = {}
     if isinstance(ribbons, list):
@@ -237,6 +254,12 @@ def build_match_summary(raw: RawMatch) -> dict:
             "replay_complete": stats.get("replay_complete"),
             "end_reason": stats.get("end_reason"),
             "recorded_s": stats.get("recorded_s"),
+            "battle_start_s": start_s,
+            "time_note": (
+                "Times are seconds since battle start. In-game clock = 20:00 minus the time."
+                if start_s is not None
+                else "Battle start was not found; timeline times are recording time."
+            ),
             **(
                 {"note": "Events after recorded_s are unknown."}
                 if stats.get("replay_complete") == 0
@@ -277,13 +300,25 @@ def build_match_summary(raw: RawMatch) -> dict:
             "damage_received_by_type": damage_received_by_type,
             "spotting_damage": stats.get("spotting_damage"),
             "potential_damage": stats.get("potential_damage"),
+            "life_time_s": (
+                own_public_numbers.get("life_time_s")
+                if own_public_numbers is not None
+                else None
+            ),
+            "distance_km": (
+                own_public_numbers.get("distance_km")
+                if own_public_numbers is not None
+                else None
+            ),
             "frags": stats.get("frags", 0),
             "ribbons": ribbon_counts,
             "base_xp": stats.get("base_xp"),
             "stats_source": stats.get("stats_source"),
         },
         "teams": team_lists,
-        "timeline": _build_timeline(timeline, own_ship_id, own_team, players_by_id, duration),
+        "timeline": _build_timeline(
+            timeline, own_ship_id, own_team, players_by_id, duration, start_s
+        ),
         "events": event_summaries,
     }
     logger.debug("Built match summary for %s", raw.match_id)
@@ -666,9 +701,9 @@ def _build_teams(
     timeline: dict,
     players_by_id: dict[int, dict],
     own_team: int | None,
-    own_ship_id: int | None,
-    own_damage: object,
     damage_by_ship: dict[int, float],
+    public_numbers: dict[str, dict],
+    incomplete: bool,
 ) -> dict[str, list[dict]]:
     beta = hidden.get("battle_results_beta")
     tabs = beta.get("tabs") if isinstance(beta, dict) else None
@@ -690,7 +725,7 @@ def _build_teams(
                         ),
                         {},
                     )
-                    teams[team_name].append({
+                    entry = {
                         "player": row.get("username"),
                         "ship": readable_ship_name(
                             row.get("ship_name") or player.get("ship_id") or player.get("ship")
@@ -703,16 +738,15 @@ def _build_teams(
                         "survived": row.get("is_alive"),
                         "frags": row.get("frags"),
                         "xp": row.get("exp"),
-                        **(
-                            {"damage": own_damage}
-                            if row.get("is_own")
-                            else {
-                                "damage_timeline": _damage_for_player(
-                                    timeline, player, damage_by_ship
-                                )
-                            }
-                        ),
-                    })
+                    }
+                    exact = public_numbers.get(row.get("username"))
+                    if exact is not None:
+                        entry.update(exact)
+                    elif incomplete:
+                        entry["damage_timeline"] = _damage_for_player(
+                            timeline, player, damage_by_ship
+                        )
+                    teams[team_name].append(entry)
     if isinstance(timeline.get("players"), list):
         for player in timeline["players"]:
             if not isinstance(player, dict):
@@ -722,7 +756,7 @@ def _build_teams(
             if teams[team_name]:
                 continue
             entry = players_by_id.get(ship_id, {})
-            teams[team_name].append({
+            result = {
                 "player": player.get("name"),
                 "ship": readable_ship_name(
                     entry.get("ship_id") or entry.get("ship") or player.get("ship")
@@ -733,16 +767,15 @@ def _build_teams(
                 "survived": entry.get("alive"),
                 "frags": entry.get("frags"),
                 "xp": entry.get("xp"),
-                **(
-                    {"damage": own_damage}
-                    if ship_id == own_ship_id
-                    else {
-                        "damage_timeline": _damage_for_player(
-                            timeline, entry, damage_by_ship
-                        )
-                    }
-                ),
-            })
+            }
+            exact = public_numbers.get(player.get("name"))
+            if exact is not None:
+                result.update(exact)
+            elif incomplete:
+                result["damage_timeline"] = _damage_for_player(
+                    timeline, entry, damage_by_ship
+                )
+            teams[team_name].append(result)
     return teams
 
 
@@ -778,6 +811,7 @@ def _build_timeline(
     own_team: int | None,
     players_by_id: dict[int, dict],
     duration: object,
+    start_s: float | None,
 ) -> list[dict]:
     snapshots = timeline.get("state_snapshots")
     if own_ship_id is None or not isinstance(snapshots, list) or not snapshots:
@@ -788,9 +822,13 @@ def _build_timeline(
     ]
     if not valid:
         return []
+    timed = [
+        (snapshot, battle_time(float(snapshot["timestamp"]), start_s))
+        for snapshot in valid
+    ]
     max_time = _numeric(duration)
     if max_time is None:
-        max_time = max(float(snapshot["timestamp"]) for snapshot in valid)
+        max_time = max(battle_timestamp for _, battle_timestamp in timed)
     meta = timeline.get("meta")
     interval = _numeric(meta.get("snapshot_interval")) if isinstance(meta, dict) else None
     tolerance = max(2.5, (interval or 5.0) / 2 + 0.1)
@@ -806,9 +844,11 @@ def _build_timeline(
     seen_timestamps: set[float] = set()
     targets = range(0, math.floor(max_time / 30) * 30 + 1, 30)
     for target in targets:
-        snapshot = min(valid, key=lambda item: abs(float(item["timestamp"]) - target))
+        snapshot, battle_timestamp = min(
+            timed, key=lambda item: abs(item[1] - target)
+        )
         timestamp = float(snapshot["timestamp"])
-        if abs(timestamp - target) > tolerance or timestamp in seen_timestamps:
+        if abs(battle_timestamp - target) > tolerance or timestamp in seen_timestamps:
             continue
         seen_timestamps.add(timestamp)
         ships = snapshot.get("ships")
@@ -840,7 +880,7 @@ def _build_timeline(
         battle = snapshot.get("battle")
         battle = battle if isinstance(battle, dict) else {}
         samples.append({
-            "time_s": round(timestamp, 2),
+            "time_s": battle_timestamp,
             "position": own_position,
             "heading": own_state.get("yaw"),
             "health": own_state.get("health"),
@@ -857,6 +897,7 @@ def _build_events(
     players_by_id: dict[int, dict],
     players_by_account: dict[int, dict],
     hidden: dict,
+    start_s: float | None,
 ) -> list[dict]:
     events = timeline.get("events")
     if not isinstance(events, list):
@@ -870,6 +911,7 @@ def _build_events(
         timestamp = _numeric(event.get("timestamp"))
         if timestamp is None:
             continue
+        battle_timestamp = battle_time(timestamp, start_s)
         if event_type == "DeathEvent":
             victim_id = _integer_id(event.get("victim_id", event.get("entity_id")))
             killer_id = _integer_id(event.get("killer_id"))
@@ -877,7 +919,7 @@ def _build_events(
             details = death_info.get(str(victim_id), {}) if isinstance(death_info, dict) else {}
             summaries.append({
                 "type": "kill",
-                "time_s": round(timestamp, 2),
+                "time_s": battle_timestamp,
                 "victim": _player_reference(players_by_id.get(victim_id), victim_id),
                 "killer": _player_reference(players_by_id.get(killer_id), killer_id),
                 "weapon": details.get("name") if isinstance(details, dict) else None,
@@ -888,7 +930,7 @@ def _build_events(
             amount = _numeric(event.get("damage"))
             if amount is None:
                 continue
-            bucket = int(timestamp // 30) * 30
+            bucket = int(battle_timestamp // 30) * 30
             totals = damage_buckets.setdefault(bucket, {"damage_dealt": 0.0, "damage_taken": 0.0})
             if _integer_id(event.get("attacker_id")) == own_ship_id:
                 totals["damage_dealt"] += amount
@@ -902,14 +944,14 @@ def _build_events(
         ):
             summaries.append({
                 "type": "consumable",
-                "time_s": round(timestamp, 2),
+                "time_s": battle_timestamp,
                 "consumable_id": event.get("consumable_id"),
                 "consumable_type": event.get("consumable_type"),
             })
         elif event_type == "CapturePointUpdateEvent":
             summaries.append({
                 "type": "capture_point",
-                "time_s": round(timestamp, 2),
+                "time_s": battle_timestamp,
                 "zone_id": event.get("zone_entity_id", event.get("entity_id")),
                 "team_id": event.get("team_id"),
                 "progress": event.get("progress"),
@@ -921,7 +963,7 @@ def _build_events(
             sender = players_by_account.get(sender_id) if sender_id is not None else None
             summaries.append({
                 "type": "team_chat",
-                "time_s": round(timestamp, 2),
+                "time_s": battle_timestamp,
                 "player": sender.get("name") if sender else None,
                 "message": event.get("message"),
             })

@@ -7,6 +7,8 @@ import pytest
 
 from wows_replay_analysis.config import Config
 from wows_replay_analysis.process import PROCESSOR_VERSION
+from wows_replay_analysis.process import match_summary as match_summary_module
+from wows_replay_analysis.process import stats as stats_module
 from wows_replay_analysis.process.match_summary import (
     build_all_summaries,
     build_match_summary,
@@ -230,8 +232,8 @@ def test_build_match_summary_combines_report_and_timeline_compactly() -> None:
     }
     assert summary["me"]["killed_by"]["weapon"] == "TORPEDO"
     assert summary["me"]["ribbons"] == {"RIBBON_HIT": 4}
-    assert summary["teams"]["allies"][0]["damage"] == 100
-    assert summary["teams"]["enemies"][0]["damage_timeline"] == 50
+    assert "damage" not in summary["teams"]["allies"][0]
+    assert "damage_timeline" not in summary["teams"]["enemies"][0]
     assert "damage" not in summary["teams"]["enemies"][0]
     assert summary["teams"]["enemies"][0]["ship_id"] == "Enemy Ship"
     assert [sample["time_s"] for sample in summary["timeline"]] == [0, 30, 60]
@@ -244,6 +246,94 @@ def test_build_match_summary_combines_report_and_timeline_compactly() -> None:
         "kill",
     }
     assert len(json.dumps(summary).encode("utf-8")) < 50_000
+
+
+def test_build_match_summary_uses_public_numbers_for_every_player(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rows = {
+        "Captain": {
+            "name": "Captain",
+            "damage": 81673,
+            "scouting_damage": 39511,
+            "agro_art": 192900.0,
+            "agro_tpd": 92330.0,
+            "ships_killed": 1,
+            "life_time_sec": 694,
+            "distance": 58.38245141185819,
+            "received_damage_adbomb": 5781,
+            "received_damage_dbomb_airsupport": 5781,
+        },
+        "Enemy": {
+            "name": "Enemy",
+            "damage": 100000,
+            "scouting_damage": 20000,
+            "agro_art": 200000.0,
+            "ships_killed": 2,
+            "life_time_sec": 700,
+            "distance": 20.125,
+            "received_damage_main_he": 1234,
+        },
+    }
+    monkeypatch.setattr(stats_module, "public_results", lambda _: rows)
+    monkeypatch.setattr(match_summary_module, "public_results", lambda _: rows)
+
+    summary = build_match_summary(make_raw(report=report_data(), timeline=timeline_data()))
+
+    assert summary["me"]["damage"] == 81673
+    assert summary["me"]["damage_received"] == 5781
+    assert summary["me"]["damage_received_by_type"] == {
+        "total": 5781,
+        "dbomb_airsupport": 5781,
+    }
+    assert summary["me"]["spotting_damage"] == 39511
+    assert summary["me"]["potential_damage"] == 285230
+    assert summary["me"]["life_time_s"] == 694
+    assert summary["me"]["distance_km"] == 58.38
+    assert summary["teams"]["enemies"][0]["damage"] == 100000
+    assert summary["teams"]["enemies"][0]["damage_received"] == 1234
+    assert summary["teams"]["enemies"][0]["distance_km"] == 20.12
+
+
+def test_build_match_summary_converts_timeline_times_to_battle_time() -> None:
+    timeline = timeline_data()
+    start_s = 32.35
+    timeline["meta"]["duration"] += start_s
+    for snapshot in timeline["state_snapshots"]:
+        snapshot["timestamp"] += start_s
+    for event in timeline["events"]:
+        event["timestamp"] += start_s
+    timeline["events"].append(
+        {"event_type": "BattleResultsEvent", "timestamp": start_s + 60.0}
+    )
+    timeline["events"][:0] = [
+        {
+            "event_type": "PropertyUpdateEvent",
+            "entity_type": "BattleLogic",
+            "property_name": "timeLeft",
+            "value": 0,
+            "timestamp": 31.4,
+        },
+        {
+            "event_type": "PropertyUpdateEvent",
+            "entity_type": "BattleLogic",
+            "property_name": "timeLeft",
+            "value": 1200,
+            "timestamp": start_s,
+        },
+    ]
+
+    summary = build_match_summary(make_raw(report=report_data(), timeline=timeline))
+
+    assert summary["match"]["battle_start_s"] == start_s
+    assert summary["match"]["duration_s"] == 60.0
+    assert summary["match"]["recorded_s"] == 60.0
+    assert summary["match"]["time_note"] == (
+        "Times are seconds since battle start. In-game clock = 20:00 minus the time."
+    )
+    assert summary["me"]["time_of_death_s"] == 45.0
+    assert [sample["time_s"] for sample in summary["timeline"]] == [0, 30, 60]
+    assert next(event for event in summary["events"] if event["type"] == "kill")["time_s"] == 45.0
 
 
 def test_build_match_summary_is_useful_without_timeline() -> None:

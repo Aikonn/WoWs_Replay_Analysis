@@ -34,6 +34,8 @@ from datetime import datetime
 from numbers import Real
 
 from wows_replay_analysis.process import PROCESSOR_VERSION
+from wows_replay_analysis.process.combat import battle_start_s, battle_time
+from wows_replay_analysis.process.public_results import player_numbers, public_results
 from wows_replay_analysis.process.raw_loader import RawMatch
 from wows_replay_analysis.process.raw_loader import own_entity_ids
 
@@ -78,8 +80,9 @@ def replay_end(raw: RawMatch) -> dict:
         and isinstance(event.get("timestamp"), (int, float))
         and not isinstance(event.get("timestamp"), bool)
     ] if isinstance(events, list) else []
+    start_s = battle_start_s(timeline)
     if timestamps:
-        recorded_s = max(timestamps)
+        recorded_s = battle_time(max(timestamps), start_s)
     elif timeline is None:
         opened = report.get("open") if isinstance(report.get("open"), dict) else {}
         recorded_s = _number(
@@ -139,6 +142,9 @@ def match_stats_row(raw: RawMatch) -> dict:
         optional=True,
     )
     end = replay_end(raw)
+    public_rows = public_results(raw) if end["replay_complete"] else None
+    public_row = _public_player_row(public_rows, own_player)
+    exact_numbers = player_numbers(public_row) if public_row is not None else {}
     result = "unknown" if not end["replay_complete"] else _battle_result(winner_team_id, team_id)
     if end["replay_complete"] and result is None:
         result = _timeline_result(raw.timeline, team_id)
@@ -201,13 +207,21 @@ def match_stats_row(raw: RawMatch) -> dict:
 
     ribbons = _section_value(hidden, "personal_score", "ribbons")
     ribbons_json = json.dumps(_ribbon_counts(ribbons), ensure_ascii=False, sort_keys=True)
-    duration = (
-        timeline_meta.get("duration")
-        if timeline_meta.get("duration") is not None
-        else end["recorded_s"]
-    )
+    timeline_duration = timeline_meta.get("duration")
+    duration = timeline_duration if timeline_duration is not None else end["recorded_s"]
     if duration is None:
         duration = opened.get("battleDuration", opened.get("duration"))
+    start_s = battle_start_s(raw.timeline)
+    if (
+        timeline_duration is not None
+        and isinstance(duration, Real)
+        and not isinstance(duration, bool)
+    ):
+        duration = battle_time(float(duration), start_s)
+
+    def exact_or_report(key: str, report_value: object) -> object:
+        exact_value = exact_numbers.get(key)
+        return exact_value if exact_value is not None else report_or_timeline(report_value, key)
 
     row = {
         "match_id": raw.match_id,
@@ -233,31 +247,36 @@ def match_stats_row(raw: RawMatch) -> dict:
         "survived": None if survived is None else int(survived),
         "time_of_death_s": death_time,
         "damage": _integer(
-            report_or_timeline(personal.get("damage"), "damage"),
+            exact_or_report("damage", personal.get("damage")),
             "damage",
             optional=True,
         ),
         "spotting_damage": _integer(
-            report_or_timeline(team_play.get("spotting_damage"), "spotting_damage"),
+            exact_or_report("spotting_damage", team_play.get("spotting_damage")),
             "spotting damage",
             optional=True,
         ),
         "potential_damage": _number(
-            report_or_timeline(personal.get("potential_damage"), "potential_damage"),
+            exact_or_report("potential_damage", personal.get("potential_damage")),
             "potential damage",
             optional=True,
         ),
         "damage_received": _integer(
-            report_or_timeline(details_damage.get("total"), "damage_received"),
+            exact_or_report("damage_received", details_damage.get("total")),
             "damage received",
             optional=True,
         ),
+        "distance_km": _number(
+            exact_numbers.get("distance_km"),
+            "distance",
+            optional=True,
+        ),
         "frags": _integer(
-            report_or_timeline(
+            exact_or_report(
+                "frags",
                 personal.get("frags") if personal.get("frags") is not None
                 else own_score.get("frags") if own_score
                 else own_player.get("fragsCount"),
-                "frags",
             ),
             "frags",
             optional=True,
@@ -290,6 +309,26 @@ def match_stats_row(raw: RawMatch) -> dict:
     }
     logger.debug("Built statistics row for %s", raw.match_id)
     return row
+
+
+def _public_player_row(
+    results: dict[str, dict] | None, player: dict
+) -> dict | None:
+    if results is None:
+        return None
+    name = player.get("name")
+    if isinstance(name, str) and name in results:
+        return results[name]
+    account_id = _integer_id(player.get("id"))
+    if account_id is None:
+        return None
+    return next(
+        (
+            row for row in results.values()
+            if _integer_id(row.get("account_db_id")) == account_id
+        ),
+        None,
+    )
 
 
 def _recording_player(raw: RawMatch, hidden: dict) -> tuple[int | None, dict | None]:
@@ -569,7 +608,9 @@ def _time_of_death(timeline: dict | None, ship_id: int) -> float | None:
         and isinstance(event.get("timestamp"), (int, float))
         and not isinstance(event.get("timestamp"), bool)
     ]
-    return float(min(times)) if times else None
+    if not times:
+        return None
+    return battle_time(float(min(times)), battle_start_s(timeline))
 
 
 def _ribbon_counts(value: object) -> dict[str, int]:

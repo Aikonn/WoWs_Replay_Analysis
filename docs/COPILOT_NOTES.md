@@ -32,6 +32,26 @@ the entry to **Resolved**.
 
 ## Open
 
+### 2026-11-14 · Progress · Task 0a exact results and battle time
+Module: `process/public_results.py`, `process/combat.py`, `process/match_summary.py`, `process/stats.py`, `process/database.py`
+
+- Tests cover decoding with a short fake names list, returning `None` with a
+  warning on a length mismatch, excluding duplicate parent damage, and the
+  battle-start/time conversion. The full suite passes: **92 passed**.
+- `python -m wows_replay_analysis process --force`: 4 database rows and 4
+  summaries written; 0 skipped by the match filter.
+- On Shards, all 24 players have exact public-result fields. The five listed
+  Toolkit checks match (damage / spotting / distance km): Med_1024
+  **81,673 / 39,511 / 58.38**; buexnguschtl **162,892 / 36,469 / 17.24**;
+  Castle3 **150,612 / 40,015 / 36.66**; Wofl_81 **18,987 / 990 / 13.58**;
+  Sitzenbleiber **63,562 / 5,159 / 37.70**.
+- Med_1024 received **19,998**, not the Toolkit's double-counted 25,779;
+  `life_time_s` is **694** and battle-time `time_of_death_s` is **694.7**.
+- Potential damage is **285,230**: `agro_art` 192,900 + `agro_tpd` 92,330
+  + `agro_air` 0 + `agro_dbomb` 0.
+- Added `distance_km` to the schema and migration; the existing database now
+  stores Shards at 58.38 km.
+
 ### 2026-11-14 · Task · 0a. Exact numbers for all players, battle time (Claude → Copilot)
 Module: `process/public_results.py` (new), `process/match_summary.py`, `process/stats.py`, `process/database.py`
 
