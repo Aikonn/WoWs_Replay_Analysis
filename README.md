@@ -23,12 +23,16 @@ The tool works in three stages.
 ### Stage 1: Raw extraction
 
 - Parses each replay and extracts **as much raw data as possible**, even data the analysis doesn't use yet.
-- Stores the result as one **JSON** file per replay, in a readable format.
+- Runs **both** community parsers (see [Replay parsers](#replay-parsers)) on every replay and stores both outputs:
+  - the **post-battle report** from replays_unpack (about 160 KB of JSON),
+  - the **full event timeline** from wows-replay-parser (about 27 MB of JSON, stored gzip-compressed at about 2.4 MB).
 - **Why:** the replay format changes between game versions, so older replays may stop being parseable. A raw archive keeps the data usable when the analysis is redesigned later.
 
 ### Stage 2: Processing and summaries
 
-- Reads the raw JSON exports and builds two outputs: a condensed JSON per match, ready to use as context for a single-match AI discussion, and processed statistics for multi-match trends.
+- Reads the raw JSON exports and builds two outputs:
+  - a **condensed JSON per match**, built mainly from the event timeline, ready to use as context for a single-match AI discussion;
+  - **processed statistics** for multi-match trends, built mainly from the post-battle report.
 - Stores the processed statistics in a local **SQLite** database for trend queries.
 - Can be changed or rebuilt at any time without needing the original replays.
 
@@ -36,6 +40,34 @@ The tool works in three stages.
 
 - Generates **HTML reports** from the SQLite data, for multi-match trends only. Single matches don't need one, because the condensed JSON covers them.
 - The reports serve as **context for AI discussions**, and are also readable enough for you to use on your own.
+
+## Replay parsers
+
+Evaluated on 2026-11-14 with two real replays from game version 15.10.0 (build 13533378). Both parsers worked, and each took about 5 seconds per replay. They complement each other, so the tool uses both.
+
+### Monstrofil/replays_unpack: post-battle report
+
+- Repo: https://github.com/Monstrofil/replays_unpack (MIT license)
+- Gives the full **post-battle screen** with named fields: damage dealt and received by weapon type, spotting damage, potential damage, ribbons, kills, XP and credits.
+- Also gives a damage map (who damaged whom), death info (killer and weapon), every player's ship, clan and captain skills, and the battle result.
+- **No timeline:** no positions, and no information about when things happened.
+- Supports every game version from 0.8.0 onward. CI adds new versions automatically when a patch ships.
+- **Install from GitHub, not PyPI.** The PyPI release (3.4.2) only supports up to 14.8.0. Needs `pycryptodomex` and `lxml`.
+
+### toalba/wows-replay-parser: event timeline
+
+- Repo: https://github.com/toalba/wows-replay-parser (Apache 2.0 license)
+- Exports a typed, timestamped **event stream** (about 110,000 events per match): positions, shots, torpedoes, damage, deaths, spotting, consumables, capture points, chat and more.
+- Takes a **state snapshot** of every ship (health, position, detection) every 5 seconds.
+- Events it can't decode yet are kept as `RawEvent` entries, not dropped.
+- Its end-of-battle results are an undecoded raw data blob. Use replays_unpack for those.
+- Needs the **gamedata repo** https://github.com/toalba/wows-render-gamedata (about 460 MB). Check out the tag that matches the replay's build (`v<build_id>`, e.g. `v13533378`).
+- Requires Python 3.11+. It has a single maintainer, which is a risk to keep in mind.
+- CLI used: `wowsreplay export <replay> --gamedata <gamedata>/data/scripts_entity/entity_defs -o <out.json>`
+
+### Not used
+
+- **landaire/wows-toolkit** (Rust): a desktop app with a replay viewer and minimap renderer. It isn't a Python library, but it's useful for checking our results by hand.
 
 ## Operation
 
@@ -49,8 +81,9 @@ The tool should be easy to share. Each user runs their own copy on their own com
 
 ## Tech stack
 
-- Python
-- JSON for raw exports
+- Python 3.11+
+- JSON for raw exports (gzip-compressed for the event timeline)
+- Replay parsers: replays_unpack and wows-replay-parser, both installed from GitHub
 - SQLite for processed statistics
 
 Existing community tools (for example, replay parsers) should be used wherever possible instead of building everything from scratch.
