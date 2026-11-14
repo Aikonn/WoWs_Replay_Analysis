@@ -34,7 +34,13 @@ from datetime import datetime
 from numbers import Real
 
 from wows_replay_analysis.process import PROCESSOR_VERSION
-from wows_replay_analysis.process.combat import battle_start_s, battle_time
+from wows_replay_analysis.process.combat import (
+    battle_start_s,
+    battle_time,
+    damage_dealt_by_ship,
+    deduplicate_deaths,
+    health_track,
+)
 from wows_replay_analysis.process.public_results import player_numbers, public_results
 from wows_replay_analysis.process.raw_loader import RawMatch
 from wows_replay_analysis.process.raw_loader import own_entity_ids
@@ -395,10 +401,8 @@ def _timeline_alive(timeline: dict | None, ship_id: int | None) -> bool | None:
         return None
     events = timeline.get("events")
     if isinstance(events, list) and any(
-        isinstance(event, dict)
-        and event.get("event_type") == "DeathEvent"
-        and _integer_id(event.get("victim_id", event.get("entity_id"))) == ship_id
-        for event in events
+        _integer_id(event.get("victim_id", event.get("entity_id"))) == ship_id
+        for event in deduplicate_deaths(events)
     ):
         return False
     snapshots = timeline.get("state_snapshots")
@@ -425,32 +429,21 @@ def _timeline_personal_stats(timeline: dict | None, ship_id: int) -> dict[str, i
     if not isinstance(events, list):
         return {}
 
-    damage_dealt = 0.0
-    damage_received = 0.0
-    frag_victims: set[int] = set()
+    damage_by_ship = damage_dealt_by_ship(timeline)
+    track = health_track(timeline, ship_id)
+    damage_received = sum(
+        previous[1] - current[1]
+        for previous, current in zip(track, track[1:])
+        if current[1] < previous[1]
+    )
     spotted = 0.0
     potential = 0.0
-    has_damage_events = False
     has_ship_stat_events = False
     for event in events:
         if not isinstance(event, dict):
             continue
         event_type = event.get("event_type")
-        if event_type == "DamageEvent":
-            damage = _number(event.get("damage"), "timeline damage", optional=True)
-            if damage is None:
-                continue
-            has_damage_events = True
-            if _integer_id(event.get("attacker_id")) == ship_id:
-                damage_dealt += damage
-            if _integer_id(event.get("target_id", event.get("entity_id"))) == ship_id:
-                damage_received += damage
-        elif event_type == "DeathEvent":
-            if _integer_id(event.get("killer_id")) == ship_id:
-                victim_id = _integer_id(event.get("victim_id", event.get("entity_id")))
-                if victim_id is not None:
-                    frag_victims.add(victim_id)
-        elif (
+        if (
             event_type == "DamageReceivedStatEvent"
             and _integer_id(event.get("entity_id")) == ship_id
         ):
@@ -464,12 +457,18 @@ def _timeline_personal_stats(timeline: dict | None, ship_id: int) -> dict[str, i
             elif stat_type == "AGRO":
                 potential += delta
 
+    frag_victims = {
+        victim_id
+        for event in deduplicate_deaths(events)
+        if _integer_id(event.get("killer_id")) == ship_id
+        and (victim_id := _integer_id(event.get("victim_id", event.get("entity_id"))))
+        is not None
+    }
     stats: dict[str, int | float] = {"frags": len(frag_victims)}
-    if has_damage_events:
-        stats.update({
-            "damage": int(round(damage_dealt)),
-            "damage_received": int(round(damage_received)),
-        })
+    if ship_id in damage_by_ship:
+        stats["damage"] = int(round(damage_by_ship[ship_id]))
+    if track:
+        stats["damage_received"] = int(round(damage_received))
     if has_ship_stat_events:
         stats.update({
             "spotting_damage": int(round(spotted)),
@@ -601,10 +600,8 @@ def _time_of_death(timeline: dict | None, ship_id: int) -> float | None:
         return None
     times = [
         event["timestamp"]
-        for event in events
-        if isinstance(event, dict)
-        and event.get("event_type") == "DeathEvent"
-        and (event.get("victim_id", event.get("entity_id")) == ship_id)
+        for event in deduplicate_deaths(events)
+        if _integer_id(event.get("victim_id", event.get("entity_id"))) == ship_id
         and isinstance(event.get("timestamp"), (int, float))
         and not isinstance(event.get("timestamp"), bool)
     ]

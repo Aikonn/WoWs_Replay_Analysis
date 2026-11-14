@@ -271,7 +271,15 @@ def test_incomplete_match_stats_fall_back_to_timeline() -> None:
     raw = make_raw(
         timeline={
             "meta": {"duration": 100.0},
+            "players": [{"entity_id": 200, "max_health": 100}],
             "events": [
+                {
+                    "event_type": "PropertyUpdateEvent",
+                    "entity_id": 200,
+                    "property_name": "health",
+                    "value": 25,
+                    "timestamp": 10,
+                },
                 {
                     "event_type": "DamageEvent",
                     "attacker_id": 200,

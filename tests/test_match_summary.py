@@ -130,8 +130,14 @@ def timeline_data() -> dict:
     return {
         "meta": {"duration": 60, "snapshot_interval": 30},
         "players": [
-            {"name": "Captain", "entity_id": 200, "account_id": 1, "team_id": 0},
-            {"name": "Enemy", "entity_id": 300, "account_id": 2, "team_id": 1},
+            {
+                "name": "Captain", "entity_id": 200, "account_id": 1,
+                "team_id": 0, "ship_id": 7001, "max_health": 10,
+            },
+            {
+                "name": "Enemy", "entity_id": 300, "account_id": 2,
+                "team_id": 1, "ship_id": 7002, "max_health": 10,
+            },
         ],
         "state_snapshots": [
             {
@@ -237,7 +243,10 @@ def test_build_match_summary_combines_report_and_timeline_compactly() -> None:
     assert "damage" not in summary["teams"]["enemies"][0]
     assert summary["teams"]["enemies"][0]["ship_id"] == "Enemy Ship"
     assert [sample["time_s"] for sample in summary["timeline"]] == [0, 30, 60]
-    assert summary["timeline"][0]["nearest_enemies"][0]["distance_m"] == 5.0
+    assert summary["timeline"][0]["nearest_enemies"][0]["distance_km"] == 0.2
+    assert summary["timeline"][0]["heading"] == 86
+    assert "max_health" not in summary["timeline"][0]
+    assert summary["me"]["max_health"] == 10
     assert {event["type"] for event in summary["events"]} == {
         "damage_summary",
         "consumable",
@@ -356,11 +365,35 @@ def test_build_match_summary_is_useful_without_report() -> None:
     assert summary["match"]["note"] == "Events after recorded_s are unknown."
     assert summary["me"]["player"] == "Captain"
     assert summary["me"]["damage"] == 40
-    assert summary["me"]["damage_received"] == 50
+    assert summary["me"]["damage_received"] is None
     assert summary["me"]["survived"] is False
     assert summary["me"]["stats_source"] == "timeline"
     assert summary["teams"]["enemies"][0]["player"] == "Enemy"
     assert summary["timeline"]
+
+
+def test_incomplete_teams_get_ship_details_from_gamedata(tmp_path: Path) -> None:
+    data_dir = tmp_path / "gamedata"
+    (data_dir / "data").mkdir(parents=True)
+    (data_dir / "data" / "ships.json").write_text(
+        json.dumps({
+            "7001": {"name": "PRSS110_K_type", "level": 10, "species": "Battleship"},
+            "7002": {"name": "PGSS510_U4501", "level": 10, "species": "Submarine"},
+        }),
+        encoding="utf-8",
+    )
+    (data_dir / "data" / "ship_names.json").write_text(
+        json.dumps({"7001": "K type", "7002": "U-4501"}),
+        encoding="utf-8",
+    )
+
+    summary = build_match_summary(make_raw(timeline=timeline_data()), data_dir)
+
+    assert summary["teams"]["allies"][0]["ship"] == "K type"
+    assert summary["teams"]["allies"][0]["ship_id"] == "PRSS110_K_type"
+    assert summary["teams"]["allies"][0]["class"] == "Battleship"
+    assert summary["teams"]["allies"][0]["tier"] == 10
+    assert summary["teams"]["enemies"][0]["ship"] == "U-4501"
 
 
 @pytest.mark.parametrize(

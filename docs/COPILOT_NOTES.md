@@ -32,6 +32,31 @@ the entry to **Resolved**.
 
 ## Open
 
+### 2026-11-14 · Progress · Task 0b combat data fixes
+Module: `process/combat.py`, `process/match_summary.py`, `process/stats.py`
+
+- Full suite: **102 passed**. Shipped `PROCESSOR_VERSION = 3`.
+- `python -m wows_replay_analysis process --force`: **4 database rows and 4
+  summaries written; 0 skipped by the match filter**. All four saved
+  summaries have no `data_warnings`.
+- Shards (`20261113_184244_PRSS110-K-type_23_Shards`; battle start **32.35 s**):
+  healing **997.5** in one battle-time event, **580.9–594.9 s**; damage
+  windows total **19,997.5** damage taken and the last ends at **694.7 s**.
+  The **35** raw deaths deduplicate to **19** unique victims and **19** kill
+  events.
+- Shards damage dealt is **81,673** in the report. My DamageEvents (**79,302.9**)
+  plus killing blows (**1,601.6**) total **80,904.5**, a gap of **768.5
+  (0.941%)**, within 1%. There are **29** `attacker_id = 0` DamageEvents
+  (**1,442** damage) against six other ships and none against Med_1024. They
+  do not explain this player's gap; the timeline has no weapon label, so I
+  cannot reliably identify them as flooding.
+- Incomplete Sleeping Giant teams now have ship, class and tier for all
+  **24/24** players from the gamedata ship index. Timeline samples are aligned
+  to battle time, pre-battle samples are dropped, and the repeated
+  `max_health` field was removed from samples.
+- Saved summary sizes (all under 50,000 bytes): Libertad **25,993 B**;
+  Sleeping Giant **27,107 B**; Shards **42,431 B**; OC_prey **42,420 B**.
+
 ### 2026-11-14 · Task · 0b. Combat data fixes (Claude → Copilot)
 Module: `process/combat.py` (new), `process/match_summary.py`, `process/stats.py`
 
