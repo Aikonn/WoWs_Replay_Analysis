@@ -26,5 +26,5 @@ match_groups = ["pvp"]
 # Where "Update" downloads the tool from (no git needed).
 repo = "Aikonn/WoWs_Replay_Analysis"
 branch = "main"
-# Read-only GitHub token, only needed while the repo is private.
+# Optional GitHub token; not needed (the repo is public).
 github_token = ""

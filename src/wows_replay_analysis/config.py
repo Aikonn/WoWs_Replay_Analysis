@@ -26,7 +26,7 @@ class Config:
     # [update] Where the tool updates itself from (see updates.py).
     update_repo: str = "Aikonn/WoWs_Replay_Analysis"
     update_branch: str = "main"
-    github_token: str | None = None   # only needed while the repo is private
+    github_token: str | None = None   # optional; the repo is public
 
     @property
     def raw_dir(self) -> Path:

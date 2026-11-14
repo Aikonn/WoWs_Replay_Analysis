@@ -170,8 +170,9 @@ reports on three components; `update` (or **Update**) updates them:
 | Parsers (replays_unpack, wows-replay-parser) | game patches that change the replay format | `update` reinstalls both from GitHub with pip. `check` compares the installed commit (pip's `direct_url.json`) with upstream. |
 | The tool itself | we push changes | `update` downloads the branch as a zip from the GitHub API and replaces the code files; `config.toml`, `data/`, `cache/` and `.venv/` are never touched. No git and no GitHub releases needed. The installed commit is kept in `.installed_commit`. A git clone (with `.git`) is never overwritten; update it with `git pull`. |
 
-While the repo is private, the tool update needs a read-only GitHub token in
-`[update] github_token`; a public repo needs none.
+The repo is public, so the update needs no GitHub account or token. The
+optional `[update] github_token` only helps if GitHub's anonymous rate limit
+(60 API calls per hour) is ever hit.
 
 ## GUI
 

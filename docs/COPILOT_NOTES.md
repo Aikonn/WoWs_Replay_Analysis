@@ -109,8 +109,8 @@ Module: `updates.py`, `cli.py`, `config.py`
 
 Implement `updates.py` as its docstrings describe, plus the `check` and
 `update` commands and the `[update]` config section. The tool update must
-work without git and without GitHub releases. The repo is private for now,
-so use the optional `github_token`.
+work without git and without GitHub releases. The repo is public, so no
+token is needed; send the optional `github_token` only when it is set.
 
 Done when: unit tests cover the file replacement on a temp folder (code
 replaced, PRESERVED untouched, removed upstream files deleted, `.git`

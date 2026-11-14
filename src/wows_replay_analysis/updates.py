@@ -92,8 +92,8 @@ def latest_commit(repo: str, branch: str, token: str | None = None) -> str:
 
     GET https://api.github.com/repos/{repo}/commits/{branch} with header
     `Accept: application/vnd.github.sha` (the body is the sha). Send
-    `Authorization: Bearer <token>` when a token is given (needed while the
-    repo is private). Timeout 15 s.
+    `Authorization: Bearer <token>` only when a token is configured (the repo
+    is public, so normally none). Timeout 15 s.
     """
     raise NotImplementedError
 
