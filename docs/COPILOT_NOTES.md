@@ -33,7 +33,7 @@ Investigate only, don't change the publish logic yet. On one leftover backup fol
 1. `icacls <folder>` and `icacls <a file inside>` output (look for DENY entries and where they're inherited from).
 2. `attrib` of the files inside (read-only? OneDrive pinned/unpinned attributes?).
 3. Whether deleting a single file inside works, and whether deleting the empty folder works after that.
-4. Whether `shutil.rmtree(path, onexc=...)` succeeds when the handler clears the read-only attribute (`os.chmod(p, stat.S_IWRITE)`) and retries. Python's rmtree fails with WinError 5 on read-only files, which is a common cause.
+4. Whether `shutil.rmtree` with an error handler (`onexc` on Python 3.12+, `onerror` on 3.11) succeeds when the handler clears the read-only attribute (`os.chmod(p, stat.S_IWRITE)`) and retries. Python's rmtree fails with WinError 5 on read-only files, which is a common cause.
 5. Whether the staging folder from extract_replay gets deleted fine, and whether leftover backups exist in `%TEMP%` or in `data/raw/`.
 Then I'll decide between a fixed rmtree and publishing without backup folders.
 
