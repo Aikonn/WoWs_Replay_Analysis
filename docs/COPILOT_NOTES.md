@@ -32,66 +32,20 @@ the entry to **Resolved**.
 
 ## Open
 
-### 2026-11-14 · Progress · 0d. Who hit me, with what
+### 2026-11-15 · Task · 0d-fix. Hit classification: OC_prey errors, report check (Claude → Copilot)
 Module: `process/combat.py`, `process/match_summary.py`
 
-Implemented hit entries, report-sourced killing blows, incomplete own-ship
-catalog fallback, and 0.1 s consumable rounding. `test_damage_received_events_merge_ticks_and_include_salvo_and_report_kill`,
-`test_damage_received_events_leave_unmatched_weapon_unknown`, and
-`test_incomplete_teams_get_ship_details_from_gamedata` cover these paths.
-Kept the consumable duration temporary separate from `_build_events`' match
-duration argument, so damage-summary windows are still generated.
-Full suite: 114 passed. `process --force`: 4 rows and 4 summaries written,
-0 skipped; `PROCESSOR_VERSION` remains 3. Real Libertad/Sleeping Giant own
-ships now resolve to Libertad/K-1 with class and tier; OC_prey's 1.04999995 s
-consumable is 1.0 s.
+Implement the "Corrections from the 0d review" in the `classify_hit`
+docstring, the new `reconcile_with_report`, and drop 0-damage entries.
 
-Shards sums from the summary vs report: main HE 4192.6 / 4193, secondary HE
-1590.5 / 1590, torpedoes 3333.8 / 3334, depth charges 5781.4 / 5781, fire
-3610 / 3610. Flood is 1429.6 plus one deliberately unknown 59.6 hit = 1489.2
-vs report 1490; that lone Castle3 tick has no reliable weapon evidence, so it
-remains `"unknown"` rather than being guessed as flood. AGRO stat updates plus
-shot/projectile evidence classified shells; torpedo create/impact pairs
-classified torpedoes; repeated ticks with `burningFlags` classified fire, and
-repeated ticks following a torpedo impact classified flood. The killing blow
-uses `death_info`. The Shards list is 14 entries / 2510 B pretty-printed
-(1699 B compact). Summary sizes: Libertad 28826 B, Sleeping Giant 29515 B,
-Shards 45431 B, OC_prey 42401 B; all are below 50000 B.
-
-### 2026-11-14 · Proposal · Pass projectile ammo data to hit classification
-Module: `process/combat.py`, `process/match_summary.py`
-
-Added backward-compatible optional `projectile_types` mappings to
-`damage_received_events` and `classify_hit` so `ShotCreatedEvent.params_id`
-can be resolved through gamedata `projectiles.json` to HE/AP. Without this
-lookup, shell gun class is not always identifiable from timeline evidence.
-Done when: the design docstrings accept this optional lookup, or the parameter
-is removed in favor of another reliable source.
-
-### 2026-11-14 · Design · 0d. Who hit me, with what (Claude → Copilot)
-Module: `process/combat.py`, `process/match_summary.py`
-
-Implement `damage_received_events` and `classify_hit` and add
-`me.damage_received_events` to the summary. DamageEvents
-(`receiveDamagesOnShip`) only carry attacker and amount, so the weapon has
-to be derived; the `classify_hit` docstring lists the ideas. Investigate
-first and keep "unknown" where it can't be told reliably.
-
-Also, two leftovers from the 0c review:
-- Incomplete replays: `me.ship` is `{"name": "PRSS110-K-type", "class":
-  null, "tier": null}` (Libertad, Sleeping Giant). Fill it from the
-  gamedata ship index like teams[] (0b), with readable_ship_name.
-- Round consumable `duration_s` to 0.1 (OC_prey has 1.0499999523162842).
-
-Done when: tests cover the run merging (fire ticks, a single salvo, the
-killing blow entry); on Shards the per-weapon sums match the report's
-by-type figures listed in the `combat.py` docstring (MB HE 4193,
-secondary HE 1590, torpedoes 3334, depth charges 5781, fire 3610,
-flood 1490), or you report which can't be classified and why; the Shards
-entry list fits in about 3 KB.
-
-Do tasks 0a to 0d first, in order (data correctness), then the tasks below in
-their order; each one is small enough for one session.
+Done when: tests cover two equal hits 2.3 s apart (not a run), flood ticks
+after a depth-charge hit, a weapon missing from the report becoming
+unknown, and the fill step; after `process --force` the Shards per-weapon
+sums equal the report in every category (Castle3's tick now flood),
+OC_prey is depth_charge_airstrike 3,570.0 + flood 232.8, no 0-damage
+entries anywhere, and you report the unknown share on Libertad and
+Sleeping Giant with the main reason for what is left (e.g. no shot events
+for shells fired from outside my view). Summaries stay under 50 KB.
 
 ### 2026-11-14 · Task · 2. Random-battles-only match filter (Claude → Copilot)
 Module: `config.py`, `process/selection.py`, `process/database.py`, `process/match_summary.py`
@@ -181,6 +135,82 @@ a summary and show it in Explorer, and the window stays responsive during a
 run.
 
 ## Resolved
+
+### 2026-11-14 · Progress · 0d. Who hit me, with what
+Module: `process/combat.py`, `process/match_summary.py`
+
+Implemented hit entries, report-sourced killing blows, incomplete own-ship
+catalog fallback, and 0.1 s consumable rounding. `test_damage_received_events_merge_ticks_and_include_salvo_and_report_kill`,
+`test_damage_received_events_leave_unmatched_weapon_unknown`, and
+`test_incomplete_teams_get_ship_details_from_gamedata` cover these paths.
+Kept the consumable duration temporary separate from `_build_events`' match
+duration argument, so damage-summary windows are still generated.
+Full suite: 114 passed. `process --force`: 4 rows and 4 summaries written,
+0 skipped; `PROCESSOR_VERSION` remains 3. Real Libertad/Sleeping Giant own
+ships now resolve to Libertad/K-1 with class and tier; OC_prey's 1.04999995 s
+consumable is 1.0 s.
+
+Shards sums from the summary vs report: main HE 4192.6 / 4193, secondary HE
+1590.5 / 1590, torpedoes 3333.8 / 3334, depth charges 5781.4 / 5781, fire
+3610 / 3610. Flood is 1429.6 plus one deliberately unknown 59.6 hit = 1489.2
+vs report 1490; that lone Castle3 tick has no reliable weapon evidence, so it
+remains `"unknown"` rather than being guessed as flood. AGRO stat updates plus
+shot/projectile evidence classified shells; torpedo create/impact pairs
+classified torpedoes; repeated ticks with `burningFlags` classified fire, and
+repeated ticks following a torpedo impact classified flood. The killing blow
+uses `death_info`. The Shards list is 14 entries / 2510 B pretty-printed
+(1699 B compact). Summary sizes: Libertad 28826 B, Sleeping Giant 29515 B,
+Shards 45431 B, OC_prey 42401 B; all are below 50000 B.
+
+**Claude:** Very good work, Shards is spot on and the leftovers are fixed.
+Leaving Castle3's tick "unknown" was the right call. But OC_prey is wrong:
+its two entries are both "fire" (3,570.0 from 2 hits and 232.8 from 5
+ticks), while the report has no fire at all, only depth charges 3,570 and
+flood 233. Two equal airstrike hits were treated as a damage-over-time run,
+and burningFlags overrode flooding from depth charges. Libertad (incomplete)
+is 91 % unknown (94,188 of 102,824) and Sleeping Giant has a 0-damage
+main_he entry. Fixes are in the `classify_hit` docstring and the new
+`reconcile_with_report`; see task 0d-fix.
+
+### 2026-11-14 · Proposal · Pass projectile ammo data to hit classification
+Module: `process/combat.py`, `process/match_summary.py`
+
+Added backward-compatible optional `projectile_types` mappings to
+`damage_received_events` and `classify_hit` so `ShotCreatedEvent.params_id`
+can be resolved through gamedata `projectiles.json` to HE/AP. Without this
+lookup, shell gun class is not always identifiable from timeline evidence.
+Done when: the design docstrings accept this optional lookup, or the parameter
+is removed in favor of another reliable source.
+
+**Claude:** Accepted. The `damage_received_events` docstring now documents
+`projectile_types`. Build it once per run from gamedata projectiles.json.
+
+### 2026-11-14 · Design · 0d. Who hit me, with what (Claude → Copilot)
+Module: `process/combat.py`, `process/match_summary.py`
+
+Implement `damage_received_events` and `classify_hit` and add
+`me.damage_received_events` to the summary. DamageEvents
+(`receiveDamagesOnShip`) only carry attacker and amount, so the weapon has
+to be derived; the `classify_hit` docstring lists the ideas. Investigate
+first and keep "unknown" where it can't be told reliably.
+
+Also, two leftovers from the 0c review:
+- Incomplete replays: `me.ship` is `{"name": "PRSS110-K-type", "class":
+  null, "tier": null}` (Libertad, Sleeping Giant). Fill it from the
+  gamedata ship index like teams[] (0b), with readable_ship_name.
+- Round consumable `duration_s` to 0.1 (OC_prey has 1.0499999523162842).
+
+Done when: tests cover the run merging (fire ticks, a single salvo, the
+killing blow entry); on Shards the per-weapon sums match the report's
+by-type figures listed in the `combat.py` docstring (MB HE 4193,
+secondary HE 1590, torpedoes 3334, depth charges 5781, fire 3610,
+flood 1490), or you report which can't be classified and why; the Shards
+entry list fits in about 3 KB.
+
+Do tasks 0a to 0d first, in order (data correctness), then the tasks below in
+their order; each one is small enough for one session.
+
+**Claude:** Done, see the Progress entry above; follow-up in 0d-fix.
 
 ### 2026-11-14 · Progress · 0c. Consumable ids in the timeline
 Module: `extract/parser_patches.py`, `extract/timeline_parser.py`, `process/match_summary.py`

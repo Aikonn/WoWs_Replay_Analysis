@@ -541,7 +541,11 @@ def damage_received_events(
     amount (to 0.1) less than 2.5 s apart into one entry with a hit count;
     fire and flooding ticks become one entry each that way.
     Entry: {"start_s", "end_s", "attacker": {"player", "ship"},
-    "weapon", "hits", "damage"}; end_s only when hits > 1.
+    "weapon", "hits", "damage"}; end_s only when hits > 1. Leave out
+    entries with 0 damage. Run the list through reconcile_with_report()
+    last. projectile_types: {GameParams id: "HE"/"AP"/"CS"} built from
+    gamedata projectiles.json (accepted proposal, 0d review); optional, so
+    the function still works without gamedata.
 
     weapon: one of "main_he", "main_ap", "secondary_he", "secondary_ap",
     "torpedo", "depth_charge_airstrike", "bomb_airstrike", "fire", "flood",
@@ -643,6 +647,18 @@ def classify_hit(
     Repeated periodic damage is fire only while burning is recorded, or flood
     when it follows the same attacker's torpedo hit. A one-off tick-sized
     amount without those signals is not enough evidence.
+
+    Corrections from the 0d review (2026-11-15), OC_prey: two 1,785 hits from
+    the same attacker 2.3 s apart (an ASW airstrike, report
+    dbomb_airsupport 3570) were merged and called fire, and 5 ticks of 46.6
+    (report flood 233, after those depth charges) were also called fire.
+    - A damage-over-time run needs at least 3 hits about 0.9-1.4 s apart,
+      each at most 1.5 % of my max HP. Two equal hits are just two hits.
+    - Flood also follows the same attacker's depth-charge hits (ship or
+      airstrike) within 10 s, not only torpedoes.
+    - burningFlags alone never makes a run fire when the run also follows
+      a torpedo or depth-charge hit of that attacker; say "unknown" then
+      unless reconcile_with_report() settles it.
     """
     if not isinstance(timeline, dict) or not isinstance(event, dict):
         return "unknown"
@@ -943,6 +959,28 @@ def _damage_player_reference(player: dict | None) -> dict:
     else:
         ship = None
     return {"player": player.get("name"), "ship": ship}
+
+
+def reconcile_with_report(entries: list[dict], by_type: dict | None) -> list[dict]:
+    """Make the hit list agree with the game's per-weapon totals (0d review).
+
+    Complete replays only (by_type = me.damage_received_by_type from the
+    public results, which is exact); return entries unchanged when None.
+    Map weapons to categories: main_he/main_ap -> main_he/main_ap (also
+    main_cs), secondary_* -> atba_*, torpedo -> tpd_*, depth_charge_airstrike
+    -> dbomb_airsupport, bomb_airstrike -> bomb_airsupport, fire, flood, ram.
+    1. An entry whose weapon has no damage in the report becomes "unknown".
+    2. For each category, if its classified sum exceeds the report by more
+       than 1 HP + 0.5 per hit, set that category's entries to "unknown".
+    3. Fill: for every category still short of the report, if one unknown
+       entry, or all unknown entries of one attacker, match the shortfall
+       within 1 HP + 0.5 per hit, give them that weapon. Never split an
+       entry. Leave the rest "unknown".
+    Shards: Castle3's 59.6 tick becomes flood (1490 - 1429.6 = 60.4).
+    OC_prey: the 3570.0 entry becomes depth_charge_airstrike and the 232.8
+    entry flood.
+    """
+    raise NotImplementedError
 
 
 def check_damage_consistency(summary: dict) -> list[str]:
