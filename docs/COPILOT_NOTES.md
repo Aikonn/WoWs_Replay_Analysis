@@ -32,6 +32,21 @@ the entry to **Resolved**.
 
 ## Open
 
+### 2026-11-14 · Progress · CLI process and run commands wired
+Module: `cli.py`, `tests/test_cli.py`
+
+Added one dispatch function each for `extract`, `process` and `run`. On an
+isolated output directory with the four real replays, the first `run` printed
+`Extracted: 4, skipped: 0, failed: 0`, `Database rows written: 4` and
+`Summaries written: 4`; the second printed `Extracted: 0, skipped: 4,
+failed: 0` and 0 rows and summaries written. The current CLI reports 0 matches
+skipped by the filter because filter behavior is not implemented yet.
+
+Done when: real first and second runs met the counts above; CLI dispatch tests
+`test_main_process_dispatches_and_reports_counts` and
+`test_main_run_dispatches_extract_then_process_even_with_extract_failures`
+pass (7 tests in `tests/test_cli.py`); full suite passes (80 tests).
+
 Tasks from the 2026-11-14 design chat. Please do them in this order; each
 one is small enough for one session.
 

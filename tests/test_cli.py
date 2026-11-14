@@ -52,6 +52,66 @@ def test_main_returns_failure_for_failed_replays(
     assert cli.main(["extract"]) == 1
 
 
+def test_main_process_dispatches_and_reports_counts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = Config(tmp_path, tmp_path / "data", tmp_path / "cache")
+    monkeypatch.setattr(cli, "load_config", lambda _: config)
+    calls: list[tuple[str, Config, bool]] = []
+    monkeypatch.setattr(
+        cli.database,
+        "rebuild_database",
+        lambda actual_config, force: calls.append(("database", actual_config, force)) or 3,
+    )
+    monkeypatch.setattr(
+        cli.match_summary,
+        "build_all_summaries",
+        lambda actual_config, force: calls.append(("summaries", actual_config, force)) or 2,
+    )
+
+    assert cli.main(["process", "--force"]) == 0
+    assert calls == [("database", config, True), ("summaries", config, True)]
+    assert capsys.readouterr().out.splitlines() == [
+        "Database rows written: 3",
+        "Summaries written: 2",
+        "Skipped by match filter: 0",
+    ]
+
+
+def test_main_run_dispatches_extract_then_process_even_with_extract_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = Config(tmp_path, tmp_path / "data", tmp_path / "cache")
+    monkeypatch.setattr(cli, "load_config", lambda _: config)
+    calls: list[str] = []
+
+    def fake_extract(actual_config: Config, force: bool) -> ExtractResult:
+        assert actual_config is config
+        assert force is True
+        calls.append("extract")
+        return ExtractResult(failed={"broken": "parser failed"})
+
+    def fake_database(actual_config: Config, force: bool) -> int:
+        assert actual_config is config
+        assert force is True
+        calls.append("database")
+        return 0
+
+    def fake_summaries(actual_config: Config, force: bool) -> int:
+        assert actual_config is config
+        assert force is True
+        calls.append("summaries")
+        return 0
+
+    monkeypatch.setattr(cli, "extract_all", fake_extract)
+    monkeypatch.setattr(cli.database, "rebuild_database", fake_database)
+    monkeypatch.setattr(cli.match_summary, "build_all_summaries", fake_summaries)
+
+    assert cli.main(["run", "--force"]) == 1
+    assert calls == ["extract", "database", "summaries"]
+    assert "Database rows written: 0" in capsys.readouterr().out
+
+
 def test_main_reports_unimplemented_command_without_loading_config(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -59,8 +119,8 @@ def test_main_reports_unimplemented_command_without_loading_config(
         cli, "load_config", lambda _: pytest.fail("unimplemented command must not load config")
     )
 
-    assert cli.main(["process"]) == 2
-    assert capsys.readouterr().out.strip() == "process is not implemented yet"
+    assert cli.main(["report"]) == 2
+    assert capsys.readouterr().out.strip() == "report is not implemented yet"
 
 
 def test_quiet_parser_logs_filters_parser_noise_but_preserves_errors(

@@ -19,8 +19,9 @@ import importlib.util
 import logging
 from pathlib import Path
 
-from wows_replay_analysis.config import load_config
+from wows_replay_analysis.config import Config, load_config
 from wows_replay_analysis.extract.runner import extract_all
+from wows_replay_analysis.process import database, match_summary
 
 logger = logging.getLogger(__name__)
 
@@ -142,11 +143,11 @@ def main(argv: list[str] | None = None) -> int:
     Returns the process exit code (0 = success). Errors on individual replays
     must be logged and counted, not abort the whole run.
 
-    Dispatch (TODO, only extract is wired so far):
+    Dispatch:
         extract  extract_all
         process  database.rebuild_database + match_summary.build_all_summaries
                  (print rows/summaries written, and how many were skipped by
-                 the match filter)
+                 the match filter; filtering is currently not implemented)
         run      extract, then process
         report   report.html_report.generate_report (still a skeleton)
         check    updates.check_all, one line per component
@@ -162,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     quiet_parser_logs(args.verbose)
 
-    if args.command != "extract":
+    if args.command not in {"extract", "process", "run"}:
         print(f"{args.command} is not implemented yet")
         return 2
 
@@ -172,7 +173,16 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("%s", exc)
         return 2
 
-    result = extract_all(config, force=args.force)
+    if args.command == "extract":
+        return _run_extract(config, args.force)
+    if args.command == "process":
+        return _run_process(config, args.force)
+    return _run_all(config, args.force)
+
+
+def _run_extract(config: Config, force: bool) -> int:
+    """Run Stage 1 and print its per-run counts."""
+    result = extract_all(config, force=force)
     print(
         f"Extracted: {len(result.extracted)}, "
         f"skipped: {len(result.skipped)}, failed: {len(result.failed)}"
@@ -180,3 +190,21 @@ def main(argv: list[str] | None = None) -> int:
     for match_id, error in result.failed.items():
         logger.error("%s: %s", match_id, error)
     return 1 if result.failed else 0
+
+
+def _run_process(config: Config, force: bool) -> int:
+    """Run Stage 2 and print database, summary and current filter counts."""
+    rows_written = database.rebuild_database(config, force=force)
+    summaries_written = match_summary.build_all_summaries(config, force=force)
+    print(f"Database rows written: {rows_written}")
+    print(f"Summaries written: {summaries_written}")
+    # Stage 2 does not apply the match filter yet; that is the next task.
+    print("Skipped by match filter: 0")
+    return 0
+
+
+def _run_all(config: Config, force: bool) -> int:
+    """Run extraction and processing, even if some replays failed extraction."""
+    extract_status = _run_extract(config, force)
+    process_status = _run_process(config, force)
+    return max(extract_status, process_status)
