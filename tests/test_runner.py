@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import stat
 import struct
 
 import pytest
@@ -52,6 +53,24 @@ def test_needs_extraction_handles_missing_old_and_current_metadata(tmp_path: Pat
     assert not runner.needs_extraction(match_dir)
     meta.write_text("{", encoding="utf-8")
     assert runner.needs_extraction(match_dir)
+
+
+def test_remove_tree_clears_readonly_file_and_folder(tmp_path: Path) -> None:
+    tree = tmp_path / "readonly-tree"
+    nested = tree / "nested"
+    nested.mkdir(parents=True)
+    readonly_file = nested / "readonly.txt"
+    readonly_file.write_text("read only", encoding="utf-8")
+    os.chmod(readonly_file, stat.S_IREAD)
+    os.chmod(nested, stat.S_IREAD)
+
+    runner.remove_tree(tree)
+
+    assert not tree.exists()
+
+
+def test_remove_tree_ignores_missing_path(tmp_path: Path) -> None:
+    runner.remove_tree(tmp_path / "missing")
 
 
 def test_cleanup_old_backups_removes_only_matching_backup_folders(

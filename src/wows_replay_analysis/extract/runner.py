@@ -19,11 +19,13 @@ import re
 import shutil
 import stat
 import struct
+import sys
 import tempfile
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 from wows_replay_analysis.config import Config
 from wows_replay_analysis.extract import gamedata, report_parser, timeline_parser
@@ -219,7 +221,32 @@ def remove_tree(path: Path) -> None:
 
     Raise OSError if the tree can't be removed. A missing path is not an error.
     """
-    raise NotImplementedError
+    if not path.exists():
+        return
+
+    def retry_readonly(
+        function: Callable[..., object], failed_path: str, error: OSError
+    ) -> None:
+        if not isinstance(error, PermissionError):
+            raise error
+        os.chmod(failed_path, stat.S_IWRITE)
+        function(failed_path)
+
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=retry_readonly)
+    else:
+
+        def on_error(
+            function: Callable[..., object],
+            failed_path: str,
+            exc_info: tuple[type[BaseException], BaseException, object],
+        ) -> None:
+            error = exc_info[1]
+            if not isinstance(error, OSError):
+                raise error
+            retry_readonly(function, failed_path, error)
+
+        shutil.rmtree(path, onerror=on_error)
 
 
 def cleanup_old_backups(raw_dir: Path) -> int:
