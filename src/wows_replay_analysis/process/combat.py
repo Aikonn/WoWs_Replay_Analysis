@@ -211,7 +211,12 @@ def killing_blows(timeline: dict | None) -> list[dict]:
     DamageEvent, so damage = the victim's HP drops in the last 1.0 s up to
     the death that are not matched by a DamageEvent on the victim (same
     amount within 1 HP, within 0.3 s). Matched drops belong to their own
-    attackers. Fallback when the track is empty: the last state snapshot HP.
+    attackers. No fallback: when the victim has no HP drop in that last
+    1.0 s (its ship was out of the client's range, so its HP is stale),
+    the killing blow is unknown; skip it and count it (DEBUG log). Libertad
+    (2026-11-05): Nile666_'s last known HP was 26,846 from 22.7 s before
+    the kill and Xieres87's 15,390 from 146 s before; the old last-HP rule
+    gave BUCA_72teava_1 27,026 damage he never did.
     OC_prey (2026-11-13), Warzeimer at 268.4 s recording time: HP 8383.5 ->
     341.1 -> 0 in one tick, no DamageEvent from the killer, so the killing
     blow is 8383.5 (only the 341.1 step would leave my damage 8,042 short).

@@ -37,11 +37,18 @@ Module: `process/combat.py`
 
 Implement the corrected rule in the `killing_blows` docstring.
 
+Update (the owner compared Libertad with the WoWs Toolkit replay
+renderer): the old rule also used stale HP when the victim was out of
+range. The docstring now says to skip those (no fallback).
+
 Done when: tests cover a death with two unmatched drops in one tick (both
-count) and a death where a matched DamageEvent drop comes just before
-(not counted twice); after `process --force`, OC_prey window damage_dealt
-is 44,715 (within 2 HP), Shards stays 80,904.5 (±1) or you explain the
-change, and `data_warnings` is empty on all four matches.
+count), a death where a matched DamageEvent drop comes just before (not
+counted twice), and a death with stale HP (skipped); after
+`process --force`, OC_prey window damage_dealt is 44,715 (within 2 HP),
+Shards stays 80,904.5 (±1) or you explain the change, `data_warnings` is
+empty on all four matches, and Libertad `damage_timeline` for
+BUCA_72teava_1 is about 10,322 (not 37,168); list the Libertad kills whose
+blow was skipped.
 
 ### 2026-11-14 · Task · 0c. Consumable ids in the timeline (Claude → Copilot)
 Module: `extract/parser_patches.py` (new), `extract/timeline_parser.py`, `extract/__init__.py`, `process/match_summary.py`
