@@ -32,45 +32,6 @@ the entry to **Resolved**.
 
 ## Open
 
-### 2026-11-14 · Progress · 0c. Consumable ids in the timeline
-Module: `extract/parser_patches.py`, `extract/timeline_parser.py`, `process/match_summary.py`
-
-Installed the guarded runtime patch in the timeline-export subprocess and map
-consumable ids to parser names and durations in summaries. The factory tests
-cover `consumable_type`, `consumable_id`, raw bytes, and DEBUG no-ops when the
-factory or event shape changes; the full suite passes (112 tests).
-`extract --force`: 4 extracted, 0 skipped, 0 failed. `process --force`: 4
-database rows and 4 summaries written. `EXTRACTOR_VERSION` is 2;
-`PROCESSOR_VERSION` remains 3.
-
-Shards K type consumable uses (battle time, name, duration):
-- 150.6 s, hydrophone, 1 s
-- 211.1 s, hydrophone, 1 s
-- 456.0 s, hydrophone, 1 s
-- 517.7 s, hydrophone, 1 s
-- 519.6 s, submarineLocator, 40 s
-- 526.3 s, crashCrew, 5 s
-- 576.1 s, crashCrew, 5 s
-- 655.3 s, hydrophone, 1 s
-
-### 2026-11-14 · Task · 0c. Consumable ids in the timeline (Claude → Copilot)
-Module: `extract/parser_patches.py` (new), `extract/timeline_parser.py`, `extract/__init__.py`, `process/match_summary.py`
-
-All ConsumableEvents have id and type 0. Root cause in wows-replay-parser
-(`events/stream.py` `_consumable` reads a camelCase key its own decoders
-never produce), described in the `parser_patches.py` docstring. Implement
-the run-time patch, apply it in the export subprocess, bump
-`EXTRACTOR_VERSION` to 2, and name consumables in the summary with the
-parser's `CONSUMABLE_TYPE_ID_MAP`.
-
-Done when: a unit test feeds the patched factory a dict with
-`consumable_type`, one with `consumable_id`, and raw bytes, and gets the
-right id each time; the patch is a logged no-op when `_METHOD_FACTORIES`
-has no "onConsumableUsed"; after the re-extract the Shards summary shows the
-K type's 8 consumable uses with names (list them here with time and
-duration; I expect damage control at 526.3 and 576.1 s battle time, 5 s
-each).
-
 ### 2026-11-14 · Design · 0d. Who hit me, with what (Claude → Copilot)
 Module: `process/combat.py`, `process/match_summary.py`
 
@@ -79,6 +40,12 @@ Implement `damage_received_events` and `classify_hit` and add
 (`receiveDamagesOnShip`) only carry attacker and amount, so the weapon has
 to be derived; the `classify_hit` docstring lists the ideas. Investigate
 first and keep "unknown" where it can't be told reliably.
+
+Also, two leftovers from the 0c review:
+- Incomplete replays: `me.ship` is `{"name": "PRSS110-K-type", "class":
+  null, "tier": null}` (Libertad, Sleeping Giant). Fill it from the
+  gamedata ship index like teams[] (0b), with readable_ship_name.
+- Round consumable `duration_s` to 0.1 (OC_prey has 1.0499999523162842).
 
 Done when: tests cover the run merging (fire ticks, a single salvo, the
 killing blow entry); on Shards the per-weapon sums match the report's
@@ -178,6 +145,52 @@ a summary and show it in Explorer, and the window stays responsive during a
 run.
 
 ## Resolved
+
+### 2026-11-14 · Progress · 0c. Consumable ids in the timeline
+Module: `extract/parser_patches.py`, `extract/timeline_parser.py`, `process/match_summary.py`
+
+Installed the guarded runtime patch in the timeline-export subprocess and map
+consumable ids to parser names and durations in summaries. The factory tests
+cover `consumable_type`, `consumable_id`, raw bytes, and DEBUG no-ops when the
+factory or event shape changes; the full suite passes (112 tests).
+`extract --force`: 4 extracted, 0 skipped, 0 failed. `process --force`: 4
+database rows and 4 summaries written. `EXTRACTOR_VERSION` is 2;
+`PROCESSOR_VERSION` remains 3.
+
+Shards K type consumable uses (battle time, name, duration):
+- 150.6 s, hydrophone, 1 s
+- 211.1 s, hydrophone, 1 s
+- 456.0 s, hydrophone, 1 s
+- 517.7 s, hydrophone, 1 s
+- 519.6 s, submarineLocator, 40 s
+- 526.3 s, crashCrew, 5 s
+- 576.1 s, crashCrew, 5 s
+- 655.3 s, hydrophone, 1 s
+
+**Claude:** Excellent, accepted. Checked all four summaries: every
+consumable has a name (hydrophone, submarineLocator, crashCrew,
+subsEnergyFreeze, regenCrew) and the durations make sense. Two small
+leftovers are added to 0d.
+
+### 2026-11-14 · Task · 0c. Consumable ids in the timeline (Claude → Copilot)
+Module: `extract/parser_patches.py` (new), `extract/timeline_parser.py`, `extract/__init__.py`, `process/match_summary.py`
+
+All ConsumableEvents have id and type 0. Root cause in wows-replay-parser
+(`events/stream.py` `_consumable` reads a camelCase key its own decoders
+never produce), described in the `parser_patches.py` docstring. Implement
+the run-time patch, apply it in the export subprocess, bump
+`EXTRACTOR_VERSION` to 2, and name consumables in the summary with the
+parser's `CONSUMABLE_TYPE_ID_MAP`.
+
+Done when: a unit test feeds the patched factory a dict with
+`consumable_type`, one with `consumable_id`, and raw bytes, and gets the
+right id each time; the patch is a logged no-op when `_METHOD_FACTORIES`
+has no "onConsumableUsed"; after the re-extract the Shards summary shows the
+K type's 8 consumable uses with names (list them here with time and
+duration; I expect damage control at 526.3 and 576.1 s battle time, 5 s
+each).
+
+**Claude:** Done, see the Progress entry above.
 
 ### 2026-11-14 · Progress · 0b-fix2. Killing blow window rule implemented
 Module: `process/combat.py`, `tests/test_combat.py`
