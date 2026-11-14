@@ -32,56 +32,6 @@ the entry to **Resolved**.
 
 ## Open
 
-### 2026-11-14 · Progress · Task 0a exact results and battle time
-Module: `process/public_results.py`, `process/combat.py`, `process/match_summary.py`, `process/stats.py`, `process/database.py`
-
-- Tests cover decoding with a short fake names list, returning `None` with a
-  warning on a length mismatch, excluding duplicate parent damage, and the
-  battle-start/time conversion. The full suite passes: **92 passed**.
-- `python -m wows_replay_analysis process --force`: 4 database rows and 4
-  summaries written; 0 skipped by the match filter.
-- On Shards, all 24 players have exact public-result fields. The five listed
-  Toolkit checks match (damage / spotting / distance km): Med_1024
-  **81,673 / 39,511 / 58.38**; buexnguschtl **162,892 / 36,469 / 17.24**;
-  Castle3 **150,612 / 40,015 / 36.66**; Wofl_81 **18,987 / 990 / 13.58**;
-  Sitzenbleiber **63,562 / 5,159 / 37.70**.
-- Med_1024 received **19,998**, not the Toolkit's double-counted 25,779;
-  `life_time_s` is **694** and battle-time `time_of_death_s` is **694.7**.
-- Potential damage is **285,230**: `agro_art` 192,900 + `agro_tpd` 92,330
-  + `agro_air` 0 + `agro_dbomb` 0.
-- Added `distance_km` to the schema and migration; the existing database now
-  stores Shards at 58.38 km.
-
-### 2026-11-14 · Task · 0a. Exact numbers for all players, battle time (Claude → Copilot)
-Module: `process/public_results.py` (new), `process/match_summary.py`, `process/stats.py`, `process/database.py`
-
-The owner compared the Shards summary with WoWs Toolkit. The toolkit has
-exact damage for every player (ours: Richthofen 78,308 timeline estimate vs
-162,892 real) and times 30 s earlier than ours. Both come from data we
-already extract: the timeline's BattleResultsEvent holds the game's public
-results for all 24 players, and our timestamps include the 30 s countdown.
-See the `public_results.py` docstring (field decoding, the parent/sub-type
-duplicates in received damage, verified values) and the "Combat facts"
-part of the `match_summary.py` docstring.
-
-Implement `public_results.py` and use it in the summary (teams and me) and
-the database row (`damage_received`, new `distance_km` column with
-migration). Times in the summary and `time_of_death_s` become battle time
-(needs `combat.battle_start_s` / `battle_time`, do those here too).
-
-Done when: tests cover decoding with a short fake names list, the length
-mismatch (None + warning), and the parent-key rule (a row with bomb +
-bomb_avia + bomb_airsupport counts each hit once); on Shards every
-player's damage, spotting damage and distance match the toolkit screenshot
-values listed below, Med_1024 damage received is 19,998 (the toolkit's
-25,779 is its own double count of adbomb), life_time_s 694 and
-time_of_death_s 694.7; you report what potential damage sums to (toolkit:
-285,230) and which agro_* fields make it up.
-Toolkit values to check (damage / spotting / distance km): Med_1024 81,673
-/ 39,511 / 58.38; buexnguschtl 162,892 / 36,469 / 17.24; Castle3 150,612
-/ 40,015 / 36.66; Wofl_81 18,987 / 990 / 13.58; Sitzenbleiber 63,562 /
-5,159 / 37.70.
-
 ### 2026-11-14 · Task · 0b. Combat data fixes (Claude → Copilot)
 Module: `process/combat.py` (new), `process/match_summary.py`, `process/stats.py`
 
@@ -111,6 +61,18 @@ and `regeneratedHealth`; a window cut at death; battle start from a
 a test that `check_damage_consistency` flags each of the five problems. Then
 run `process --force` and `check_damage_consistency` on all real matches.
 
+Also, from the 0a review:
+- Timeline samples: pick the snapshot nearest to battle times 0, 30, 60, ...
+  (now they sit on the recording-time grid: -2.3, 27.7, ...). Drop samples
+  before the battle start.
+- Size: Shards is 51.7 KB and OC_prey 51.3 KB, over the ~50 KB target, and
+  0d adds more. Trim as the `match_summary.py` docstring says (chat or
+  samples before key events), e.g. drop `max_health` from samples (it never
+  changes; put it once in `me`) and round headings to whole degrees.
+- Incomplete replays: teams[] have ship, class and tier null (Sleeping
+  Giant). Fill them from timeline.players `ship_id` (GameParams id) via
+  the gamedata clone if it has a ship index; otherwise say so here.
+
 Done when: tests pass; on the Shards match (battle time, start 32.35 s)
 `me.healing.total` = 997.5 (one event 580.9–594.9 s), the sum of window
 `damage_taken` = 19997.5 (±2) with the last window ending at 694.7, 35 raw
@@ -118,7 +80,7 @@ DeathEvents become one kill per victim (count reported here),
 `me.damage` still 81673 and my DamageEvents + killing blows within about 1 %
 of it (report the gap and whether it is flooding with attacker_id 0);
 `data_warnings` is empty on all four real matches or each warning is
-explained here; summary sizes listed.
+explained here; all summaries under 50 KB (sizes listed).
 
 ### 2026-11-14 · Task · 0c. Consumable ids in the timeline (Claude → Copilot)
 Module: `extract/parser_patches.py` (new), `extract/timeline_parser.py`, `extract/__init__.py`, `process/match_summary.py`
@@ -245,6 +207,64 @@ a summary and show it in Explorer, and the window stays responsive during a
 run.
 
 ## Resolved
+
+### 2026-11-14 · Progress · Task 0a exact results and battle time
+Module: `process/public_results.py`, `process/combat.py`, `process/match_summary.py`, `process/stats.py`, `process/database.py`
+
+- Tests cover decoding with a short fake names list, returning `None` with a
+  warning on a length mismatch, excluding duplicate parent damage, and the
+  battle-start/time conversion. The full suite passes: **92 passed**.
+- `python -m wows_replay_analysis process --force`: 4 database rows and 4
+  summaries written; 0 skipped by the match filter.
+- On Shards, all 24 players have exact public-result fields. The five listed
+  Toolkit checks match (damage / spotting / distance km): Med_1024
+  **81,673 / 39,511 / 58.38**; buexnguschtl **162,892 / 36,469 / 17.24**;
+  Castle3 **150,612 / 40,015 / 36.66**; Wofl_81 **18,987 / 990 / 13.58**;
+  Sitzenbleiber **63,562 / 5,159 / 37.70**.
+- Med_1024 received **19,998**, not the Toolkit's double-counted 25,779;
+  `life_time_s` is **694** and battle-time `time_of_death_s` is **694.7**.
+- Potential damage is **285,230**: `agro_art` 192,900 + `agro_tpd` 92,330
+  + `agro_air` 0 + `agro_dbomb` 0.
+- Added `distance_km` to the schema and migration; the existing database now
+  stores Shards at 58.38 km.
+
+**Claude:** Excellent, accepted. I checked the new summaries on the owner's
+PC: every number matches the toolkit, the parent-key check is quiet, and
+the incomplete Sleeping Giant replay still falls back cleanly. Three small
+follow-ups are added to task 0b: timeline samples aligned to battle time,
+summary size (Shards is now 51.7 KB), and the version bump.
+
+### 2026-11-14 · Task · 0a. Exact numbers for all players, battle time (Claude → Copilot)
+Module: `process/public_results.py` (new), `process/match_summary.py`, `process/stats.py`, `process/database.py`
+
+The owner compared the Shards summary with WoWs Toolkit. The toolkit has
+exact damage for every player (ours: Richthofen 78,308 timeline estimate vs
+162,892 real) and times 30 s earlier than ours. Both come from data we
+already extract: the timeline's BattleResultsEvent holds the game's public
+results for all 24 players, and our timestamps include the 30 s countdown.
+See the `public_results.py` docstring (field decoding, the parent/sub-type
+duplicates in received damage, verified values) and the "Combat facts"
+part of the `match_summary.py` docstring.
+
+Implement `public_results.py` and use it in the summary (teams and me) and
+the database row (`damage_received`, new `distance_km` column with
+migration). Times in the summary and `time_of_death_s` become battle time
+(needs `combat.battle_start_s` / `battle_time`, do those here too).
+
+Done when: tests cover decoding with a short fake names list, the length
+mismatch (None + warning), and the parent-key rule (a row with bomb +
+bomb_avia + bomb_airsupport counts each hit once); on Shards every
+player's damage, spotting damage and distance match the toolkit screenshot
+values listed below, Med_1024 damage received is 19,998 (the toolkit's
+25,779 is its own double count of adbomb), life_time_s 694 and
+time_of_death_s 694.7; you report what potential damage sums to (toolkit:
+285,230) and which agro_* fields make it up.
+Toolkit values to check (damage / spotting / distance km): Med_1024 81,673
+/ 39,511 / 58.38; buexnguschtl 162,892 / 36,469 / 17.24; Castle3 150,612
+/ 40,015 / 36.66; Wofl_81 18,987 / 990 / 13.58; Sitzenbleiber 63,562 /
+5,159 / 37.70.
+
+**Claude:** Done, see the Progress entry above.
 
 ### 2026-11-14 · Progress · CLI process and run commands wired
 Module: `cli.py`, `tests/test_cli.py`
