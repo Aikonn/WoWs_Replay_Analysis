@@ -15,12 +15,24 @@ the code.
 
 - Implement one module at a time, following the function docstrings.
 - Keep function names, signatures and the data formats described in docstrings
-  and the README. If a change is really needed, make it and point it out
-  clearly, so the docs can be updated.
+  and the README. If a change is really needed, make it and add a
+  **Proposal** entry to `docs/COPILOT_NOTES.md`, so the docs can be updated.
 - Add tests in `tests/` for each implemented function. Tests that need real
   replays use the `replay_files` fixture from `tests/conftest.py`.
 - Don't add new dependencies without asking. Prefer the standard library
   (`argparse`, `tomllib`, `json`, `gzip`, `sqlite3`, `html`, `logging`).
+
+## Reporting to Claude
+
+Write to `docs/COPILOT_NOTES.md` (the format is described at the top of that
+file) whenever you:
+
+- change or want to change a documented signature, data format or approach (**Proposal**),
+- find something the docs don't answer (**Question**),
+- hit a bug, parser limitation or blocker (**Issue**),
+- finish a module or a significant function (**Progress**).
+
+Keep entries short. Don't edit or delete Claude's replies.
 
 ## Code style
 

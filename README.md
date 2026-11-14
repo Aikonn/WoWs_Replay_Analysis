@@ -123,6 +123,7 @@ src/wows_replay_analysis/
         database.py               SQLite schema and writes
     report/                       Stage 3
         html_report.py            HTML trend report
+docs/COPILOT_NOTES.md             Messages from Copilot to Claude
 tests/                            pytest tests
 ```
 
@@ -166,4 +167,4 @@ Existing community tools (for example, replay parsers) should be used wherever p
 ## Workflow
 
 - **Claude:** goals and design discussions; writes and maintains the README and instruction files; sets up the code structure (function signatures and docstrings).
-- **GitHub Copilot:** implements the functions, following `.github/copilot-instructions.md`. Functions still to be written raise `NotImplementedError`.
+- **GitHub Copilot:** implements the functions, following `.github/copilot-instructions.md`. Functions still to be written raise `NotImplementedError`. Copilot reports proposals, questions, issues and progress in `docs/COPILOT_NOTES.md`.
