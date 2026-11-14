@@ -22,7 +22,25 @@ battle_results_beta (the full post-battle screen with named fields).
 
 from __future__ import annotations
 
+import json
+import logging
+from importlib.metadata import version
 from pathlib import Path
+
+from replay_unpack.clients import wows
+from replay_unpack.replay_reader import ReplayReader
+
+logger = logging.getLogger(__name__)
+
+
+class _DefaultEncoder(json.JSONEncoder):
+    """Match the encoder used by replays_unpack's standalone script."""
+
+    def default(self, value: object) -> object:
+        try:
+            return value.__dict__
+        except AttributeError:
+            return str(value)
 
 
 def parse_report(replay_path: Path) -> dict:
@@ -35,9 +53,24 @@ def parse_report(replay_path: Path) -> dict:
     Raise an exception if the game version is not supported (RuntimeError from
     replays_unpack), so the caller can record the error.
     """
-    raise NotImplementedError
+    replay = ReplayReader(str(replay_path)).get_replay_data()
+    game_version = replay.engine_data["clientVersionFromXml"].replace(" ", "").split(",")
+    player = wows.ReplayPlayer(game_version)
+    player.play(replay.decrypted_data, strict_mode=False)
+    hidden = player.get_info()
+
+    # Round-trip through JSON so every parser-specific value follows the CLI encoder.
+    result = {
+        "open": replay.engine_data,
+        "extra_data": replay.extra_data,
+        "hidden": hidden,
+        "error": None,
+    }
+    parsed = json.loads(json.dumps(result, cls=_DefaultEncoder, ensure_ascii=False))
+    logger.debug("Parsed post-battle report from %s", replay_path)
+    return parsed
 
 
 def parser_version() -> str:
     """Return the installed replays_unpack version (importlib.metadata)."""
-    raise NotImplementedError
+    return version("World-of-Warships-replays-parser")

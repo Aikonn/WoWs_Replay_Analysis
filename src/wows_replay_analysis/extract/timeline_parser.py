@@ -14,7 +14,17 @@ Output keys: meta, players, state_snapshots, events.
 
 from __future__ import annotations
 
+import gzip
+import logging
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from importlib.metadata import version
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def export_timeline(replay_path: Path, entity_defs_dir: Path, output_gz: Path,
@@ -25,9 +35,48 @@ def export_timeline(replay_path: Path, entity_defs_dir: Path, output_gz: Path,
     the same environment) so it works inside a virtualenv on Windows.
     Raise an exception with the parser's stderr if it fails.
     """
-    raise NotImplementedError
+    output_gz.parent.mkdir(parents=True, exist_ok=True)
+    json_fd, json_name = tempfile.mkstemp(
+        prefix=f".{output_gz.stem}.", suffix=".json", dir=output_gz.parent
+    )
+    os.close(json_fd)
+    compressed_fd, compressed_name = tempfile.mkstemp(
+        prefix=f".{output_gz.name}.", suffix=".tmp", dir=output_gz.parent
+    )
+    os.close(compressed_fd)
+    json_path = Path(json_name)
+    compressed_path = Path(compressed_name)
+    command = [
+        sys.executable,
+        "-c",
+        "from wows_replay_parser.cli import main; main()",
+        "export",
+        str(replay_path),
+        "--gamedata",
+        str(entity_defs_dir),
+        "-o",
+        str(json_path),
+        "--snapshot-interval",
+        str(snapshot_interval),
+    ]
+
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        if result.returncode != 0:
+            details = result.stderr.strip() or result.stdout.strip() or "no error details"
+            raise RuntimeError(f"Timeline parser failed for {replay_path}: {details}")
+        if not json_path.is_file():
+            raise RuntimeError(f"Timeline parser did not create its output for {replay_path}")
+
+        with json_path.open("rb") as source, gzip.open(compressed_path, "wb") as target:
+            shutil.copyfileobj(source, target)
+        os.replace(compressed_path, output_gz)
+        logger.debug("Exported compressed timeline to %s", output_gz)
+    finally:
+        json_path.unlink(missing_ok=True)
+        compressed_path.unlink(missing_ok=True)
 
 
 def parser_version() -> str:
     """Return the installed wows-replay-parser version (importlib.metadata)."""
-    raise NotImplementedError
+    return version("wows-replay-parser")
