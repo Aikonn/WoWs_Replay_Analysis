@@ -40,6 +40,21 @@ finished only when it holds: in your Progress report, confirm each point with
 real results (test names, counts, output), or say which part failed and why.
 Give your own Proposals a `Done when:` line too.
 
+## Commits
+
+- Commit with the git identity already configured on the owner's PC. Don't
+  change git config and don't use `--author`.
+- The working branch is `main`.
+- When a task is finished (tests run and pass, Progress note written),
+  commit and push in the same run without waiting to be asked: run
+  `git pull --rebase` first, make one commit per task, and use the message
+  `task <id> "<task title>"`, e.g. `task 2 "Random-battles-only match filter"`.
+- If tests fail or the task isn't complete, don't commit; write an **Issue**
+  note in `docs/COPILOT_NOTES.md` instead.
+- If the owner asks you to commit, commit to the working branch and push.
+- Never push to other branches, publish anything, or change GitHub settings
+  without the owner's explicit request.
+
 ## Code style
 
 - Python 3.11+, type hints everywhere, `from __future__ import annotations`.
