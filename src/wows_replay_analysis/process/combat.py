@@ -1043,7 +1043,7 @@ def _death_info_weapon(death_info: dict | None) -> str:
 def _damage_player_reference(player: dict | None) -> dict:
     if not isinstance(player, dict):
         return {"player": None, "ship": None}
-    ship = player.get("ship_id") or player.get("ship")
+    ship = player.get("ship") or player.get("ship_id")
     if isinstance(ship, str):
         match = re.fullmatch(r"[A-Za-z]+\d+_(.+)", ship)
         if match is not None:

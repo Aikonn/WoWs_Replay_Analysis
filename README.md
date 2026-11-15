@@ -140,8 +140,9 @@ heights, not just outlines.
 - **Other players' numbers** come from the game's public results (exact,
   see below). Only incomplete replays use the timeline estimate
   `damage_timeline`.
-- **Ship names**: the report only has internal names (`PRSS110_K_type`); the
-  summary shows a readable form (`K type`) and keeps the internal one.
+- **Ship names**: use the gamedata ship index's display name everywhere a ship
+  name is shown (e.g. `K-1`); keep the internal name as `ship_id` and use its
+  readable form only when the index has no display name.
 - **How the match was decided** (`decided_by`) is derived from the data:
   all ships of one team destroyed, points, or time.
 

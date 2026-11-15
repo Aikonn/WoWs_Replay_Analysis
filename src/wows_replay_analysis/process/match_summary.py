@@ -28,10 +28,9 @@ timeline and events from timeline.json.gz.
 
 Source mapping decisions (2026-11-14, after the first real run):
 
-- Ship names: the report has only internal ship names (e.g. "PRSS110_K_type").
-  Show `ship` as a readable name built by readable_ship_name() and keep the
-  internal name as `ship_id`. If the gamedata clone turns out to contain
-  localized ship names, use them instead and say so in COPILOT_NOTES.
+- Ship names: use the gamedata ship index's display name everywhere, keeping
+  the internal name as `ship_id`; use readable_ship_name() only when the index
+  has no display name.
 - Damage: superseded by "Combat facts" below. Exact damage for every
   player comes from the public results; `damage_timeline` (estimate) only
   for incomplete replays. Ignore shots_damage_map for totals.
@@ -165,6 +164,19 @@ def build_match_summary(raw: RawMatch, gamedata_dir: Path | None = None) -> dict
     (report-only), and the other way round. Use gamedata_dir to fill ship
     details for incomplete-replay timeline players.
     """
+    ship_catalog = _load_ship_catalog(gamedata_dir) if gamedata_dir is not None else None
+    projectile_types = (
+        _load_projectile_types(gamedata_dir) if gamedata_dir is not None else None
+    )
+    return _build_match_summary(raw, ship_catalog, projectile_types)
+
+
+def _build_match_summary(
+    raw: RawMatch,
+    ship_catalog: tuple[dict[str, dict], dict[str, str], dict[str, str]] | None,
+    projectile_types: dict[int, str] | None,
+) -> dict:
+    """Build one summary using the indexes already loaded for this run."""
     report = raw.report or {}
     opened = report.get("open") if isinstance(report.get("open"), dict) else {}
     header = raw.meta.get("header")
@@ -179,11 +191,6 @@ def build_match_summary(raw: RawMatch, gamedata_dir: Path | None = None) -> dict
     public_numbers = {
         name: player_numbers(row) for name, row in (public_rows or {}).items()
     }
-    ship_catalog = _load_ship_catalog(gamedata_dir) if gamedata_dir is not None else None
-    projectile_types = (
-        _load_projectile_types(gamedata_dir) if gamedata_dir is not None else None
-    )
-
     players_by_id, players_by_account = _player_indexes(raw, hidden)
     own_ship_id, own_name = _own_player(raw, replay_info, players_by_id)
     own_player = players_by_id.get(own_ship_id) if own_ship_id is not None else None
@@ -208,27 +215,19 @@ def build_match_summary(raw: RawMatch, gamedata_dir: Path | None = None) -> dict
         if isinstance(own_catalog_ship.get("name"), str)
         else None
     )
-    own_catalog_ship_name = (
-        ship_catalog[1].get(str(own_params_id))
-        if ship_catalog is not None and own_params_id is not None
-        else None
-    )
     own_ship_name_source = (
         stats.get("ship_name")
         or (own_player or {}).get("ship_id")
         or (own_player or {}).get("ship")
     )
-    if stats.get("stats_source") == "timeline" and own_internal_ship_name is not None:
-        own_ship_name_source = own_internal_ship_name
-        own_ship_display_name = own_catalog_ship_name or readable_ship_name(
-            own_internal_ship_name
-        )
-    else:
-        own_ship_display_name = (
-            readable_ship_name(own_ship_name_source)
-            if isinstance(own_ship_name_source, str)
-            else own_catalog_ship_name or readable_ship_name(own_internal_ship_name)
-        )
+    own_ship_name_source = own_internal_ship_name or own_ship_name_source
+    own_ship_display_name = _ship_display_name(
+        ship_catalog,
+        own_params_id,
+        own_ship_name_source if isinstance(own_ship_name_source, str) else None,
+    )
+    if own_ship_display_name is None:
+        own_ship_display_name = readable_ship_name(own_internal_ship_name)
     combat_players_by_id = _damage_event_players(
         players_by_id, timeline, ship_catalog
     )
@@ -265,7 +264,7 @@ def build_match_summary(raw: RawMatch, gamedata_dir: Path | None = None) -> dict
     event_summaries = _build_events(
         timeline,
         own_ship_id,
-        players_by_id,
+        combat_players_by_id,
         players_by_account,
         hidden,
         start_s,
@@ -285,7 +284,7 @@ def build_match_summary(raw: RawMatch, gamedata_dir: Path | None = None) -> dict
     team_lists = _build_teams(
         hidden,
         timeline,
-        players_by_id,
+        combat_players_by_id,
         own_team,
         damage_by_ship,
         public_numbers,
@@ -408,7 +407,7 @@ def build_match_summary(raw: RawMatch, gamedata_dir: Path | None = None) -> dict
             },
             "survived": survived,
             "time_of_death_s": stats.get("time_of_death_s"),
-            "killed_by": _killed_by(hidden, own_ship_id, players_by_id),
+            "killed_by": _killed_by(hidden, own_ship_id, combat_players_by_id),
             "damage": own_damage,
             "damage_dealt_by_type": damage_by_type,
             "damage_received": own_damage_received,
@@ -451,7 +450,7 @@ def build_match_summary(raw: RawMatch, gamedata_dir: Path | None = None) -> dict
         },
         "teams": team_lists,
         "timeline": _build_timeline(
-            timeline, own_ship_id, own_team, players_by_id, duration, start_s
+            timeline, own_ship_id, own_team, combat_players_by_id, duration, start_s
         ),
         "events": event_summaries,
     }
@@ -668,6 +667,8 @@ def build_all_summaries(config: Config, force: bool = False) -> int:
     """
     written = 0
     config.matches_dir.mkdir(parents=True, exist_ok=True)
+    ship_catalog = _load_ship_catalog(config.gamedata_dir)
+    projectile_types = _load_projectile_types(config.gamedata_dir)
     for match_dir in list_raw_matches(config.raw_dir):
         match_id = match_dir.name
         output_path = config.matches_dir / f"{match_id}.json"
@@ -675,7 +676,7 @@ def build_all_summaries(config: Config, force: bool = False) -> int:
             continue
         try:
             raw = load_raw_match(match_dir)
-            summary = build_match_summary(raw, config.gamedata_dir)
+            summary = _build_match_summary(raw, ship_catalog, projectile_types)
             write_match_summary(summary, config.matches_dir, match_id)
             written += 1
         except Exception:
@@ -844,7 +845,7 @@ def _build_teams(
     damage_by_ship: dict[int, float],
     public_numbers: dict[str, dict],
     incomplete: bool,
-    ship_catalog: tuple[dict[str, dict], dict[str, str]] | None,
+    ship_catalog: tuple[dict[str, dict], dict[str, str], dict[str, str]] | None,
 ) -> dict[str, list[dict]]:
     beta = hidden.get("battle_results_beta")
     tabs = beta.get("tabs") if isinstance(beta, dict) else None
@@ -866,14 +867,23 @@ def _build_teams(
                         ),
                         {},
                     )
+                    ship_id = (
+                        row.get("ship_name")
+                        or player.get("ship_id")
+                        or player.get("ship")
+                    )
+                    internal_name = player.get("ship_id") or player.get("ship")
+                    params_id = _integer_id(player.get("ship_params_id"))
                     entry = {
                         "player": row.get("username"),
-                        "ship": readable_ship_name(
-                            row.get("ship_name") or player.get("ship_id") or player.get("ship")
+                        "ship": _gamedata_ship_name(
+                            ship_catalog,
+                            params_id,
+                            internal_name if isinstance(internal_name, str) else None,
+                        ) or readable_ship_name(
+                            ship_id if isinstance(ship_id, str) else None
                         ),
-                        "ship_id": (
-                            row.get("ship_name") or player.get("ship_id") or player.get("ship")
-                        ),
+                        "ship_id": ship_id,
                         "class": row.get("ship_type"),
                         "tier": row.get("ship_level"),
                         "survived": row.get("is_alive"),
@@ -903,20 +913,21 @@ def _build_teams(
                 if ship_catalog is not None and params_id is not None
                 else {}
             )
-            ship_name = (
-                ship_catalog[1].get(str(params_id))
-                if ship_catalog is not None and params_id is not None
-                else None
-            )
             internal_ship_name = ship_details.get("name")
+            named_player = players_by_id.get(ship_id, {})
             result = {
                 "player": player.get("name"),
-                "ship": ship_name or (
-                    readable_ship_name(internal_ship_name)
+                "ship": named_player.get("ship") or _ship_display_name(
+                    ship_catalog,
+                    params_id,
+                    internal_ship_name
                     if isinstance(internal_ship_name, str)
-                    else entry.get("ship") or player.get("ship")
+                    else entry.get("ship_id") or player.get("ship"),
                 ),
-                "ship_id": internal_ship_name or entry.get("ship_id") or player.get("ship"),
+                "ship_id": (
+                    internal_ship_name or named_player.get("ship_id")
+                    or entry.get("ship_id") or player.get("ship")
+                ),
                 "class": ship_details.get("species") or entry.get("class"),
                 "tier": ship_details.get("level", entry.get("tier")),
                 "survived": entry.get("alive"),
@@ -1015,7 +1026,7 @@ def _build_timeline(
                 ship_id = player.get("ship_id") or player.get("ship")
                 nearest.append({
                     "player": player.get("name"),
-                    "ship": readable_ship_name(
+                    "ship": player.get("ship") or readable_ship_name(
                         ship_id if isinstance(ship_id, str) else None
                     ),
                     "distance_km": world_to_km(distance),
@@ -1127,7 +1138,7 @@ def _build_events(
 
 def _load_ship_catalog(
     gamedata_dir: Path,
-) -> tuple[dict[str, dict], dict[str, str]] | None:
+) -> tuple[dict[str, dict], dict[str, str], dict[str, str]] | None:
     ships_path = gamedata_dir / "data" / "ships.json"
     names_path = gamedata_dir / "data" / "ship_names.json"
     try:
@@ -1144,18 +1155,43 @@ def _load_ship_catalog(
     if not isinstance(ships, dict) or not isinstance(names, dict):
         logger.warning("Invalid gamedata ship index under %s", gamedata_dir)
         return None
-    return (
-        {
-            str(key): value
-            for key, value in ships.items()
-            if isinstance(value, dict)
-        },
-        {
-            str(key): value
-            for key, value in names.items()
-            if isinstance(value, str)
-        },
+    ship_details = {
+        str(key): value for key, value in ships.items() if isinstance(value, dict)
+    }
+    display_names = {
+        str(key): value for key, value in names.items() if isinstance(value, str)
+    }
+    names_by_internal = {
+        details["name"]: display_names[params_id]
+        for params_id, details in ship_details.items()
+        if isinstance(details.get("name"), str) and params_id in display_names
+    }
+    return ship_details, display_names, names_by_internal
+
+
+def _ship_display_name(
+    ship_catalog: tuple[dict[str, dict], dict[str, str], dict[str, str]] | None,
+    params_id: int | None,
+    internal_name: str | None,
+) -> str | None:
+    """Return a gamedata display name, falling back to the readable internal name."""
+    return _gamedata_ship_name(ship_catalog, params_id, internal_name) or (
+        readable_ship_name(internal_name)
     )
+
+
+def _gamedata_ship_name(
+    ship_catalog: tuple[dict[str, dict], dict[str, str], dict[str, str]] | None,
+    params_id: int | None,
+    internal_name: str | None,
+) -> str | None:
+    """Return a gamedata display name when the ship index contains one."""
+    if ship_catalog is not None:
+        if params_id is not None and (name := ship_catalog[1].get(str(params_id))):
+            return name
+        if internal_name is not None and (name := ship_catalog[2].get(internal_name)):
+            return name
+    return None
 
 
 def _load_projectile_types(gamedata_dir: Path) -> dict[int, str] | None:
@@ -1185,7 +1221,7 @@ def _load_projectile_types(gamedata_dir: Path) -> dict[int, str] | None:
 def _damage_event_players(
     players_by_id: dict[int, dict],
     timeline: dict,
-    ship_catalog: tuple[dict[str, dict], dict[str, str]] | None,
+    ship_catalog: tuple[dict[str, dict], dict[str, str], dict[str, str]] | None,
 ) -> dict[int, dict]:
     """Add readable ship references for attackers, including incomplete reports."""
     timeline_players = timeline.get("players")
@@ -1214,17 +1250,13 @@ def _damage_event_players(
             if isinstance(details.get("name"), str)
             else player.get("ship_id") or player.get("ship")
         )
-        catalog_name = (
-            ship_catalog[1].get(str(params_id))
-            if ship_catalog is not None and params_id is not None
-            else None
-        )
+        catalog_name = _ship_display_name(ship_catalog, params_id, internal_name)
         player.update({
             "name": player.get("name") or timeline_player.get("name"),
+            "ship_params_id": params_id,
             "ship_id": internal_name,
             "ship": (
                 catalog_name
-                or readable_ship_name(internal_name)
                 if isinstance(internal_name, str)
                 else None
             ),
@@ -1285,7 +1317,7 @@ def _player_reference(player: dict | None, player_id: int | None) -> dict | None
     ship_id = player.get("ship_id") or player.get("ship")
     return {
         "name": player.get("name"),
-        "ship": readable_ship_name(ship_id),
+        "ship": player.get("ship") or readable_ship_name(ship_id),
         "class": player.get("class"),
         "tier": player.get("tier"),
     }

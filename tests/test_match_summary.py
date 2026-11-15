@@ -392,15 +392,24 @@ def test_incomplete_teams_get_ship_details_from_gamedata(tmp_path: Path) -> None
         json.dumps({
             "7001": {"name": "PRSS110_K_type", "level": 10, "species": "Battleship"},
             "7002": {"name": "PGSS510_U4501", "level": 10, "species": "Submarine"},
+            "7003": {"name": "PRSS110_Fallback_ship", "level": 8, "species": "Cruiser"},
         }),
         encoding="utf-8",
     )
     (data_dir / "data" / "ship_names.json").write_text(
-        json.dumps({"7001": "K type", "7002": "U-4501"}),
+        json.dumps({"7001": "K-1", "7002": "U-4501"}),
         encoding="utf-8",
     )
 
     timeline = timeline_data()
+    timeline["players"].append({
+        "name": "Fallback",
+        "entity_id": 301,
+        "account_id": 3,
+        "team_id": 1,
+        "ship_id": 7003,
+        "max_health": 10,
+    })
     timeline["events"][2]["work_time_left"] = 1.0499999523162842
     partial_report = {
         "open": {"playerName": "Captain", "playerVehicle": "PRSS110-K-type"},
@@ -423,16 +432,25 @@ def test_incomplete_teams_get_ship_details_from_gamedata(tmp_path: Path) -> None
     )
 
     assert summary["me"]["ship"] == {
-        "name": "K type",
+        "name": "K-1",
         "ship_id": "PRSS110_K_type",
         "class": "Battleship",
         "tier": 10,
     }
-    assert summary["teams"]["allies"][0]["ship"] == "K type"
+    assert summary["teams"]["allies"][0]["ship"] == "K-1"
     assert summary["teams"]["allies"][0]["ship_id"] == "PRSS110_K_type"
     assert summary["teams"]["allies"][0]["class"] == "Battleship"
     assert summary["teams"]["allies"][0]["tier"] == 10
     assert summary["teams"]["enemies"][0]["ship"] == "U-4501"
+    fallback = next(
+        player for player in summary["teams"]["enemies"]
+        if player["player"] == "Fallback"
+    )
+    assert fallback["ship"] == "Fallback ship"
+    assert summary["timeline"][0]["nearest_enemies"][0]["ship"] == "U-4501"
+    assert summary["me"]["damage_received_events"][0]["attacker"]["ship"] == "U-4501"
+    kill = next(event for event in summary["events"] if event["type"] == "kill")
+    assert kill["killer"]["ship"] == "U-4501"
     consumable = next(event for event in summary["events"] if event["type"] == "consumable")
     assert consumable["duration_s"] == 1.0
 
@@ -506,3 +524,33 @@ def test_build_all_summaries_skips_current_and_force_rebuilds(
     assert build_all_summaries(config, force=True) == 1
     saved = json.loads((config.matches_dir / "match.json").read_text(encoding="utf-8"))
     assert saved["processor_version"] == PROCESSOR_VERSION
+
+
+def test_build_all_summaries_loads_catalogs_once_per_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = Config(tmp_path, tmp_path / "data", tmp_path / "cache")
+    for match_id in ("match-one", "match-two"):
+        raw_dir = config.raw_dir / match_id
+        raw_dir.mkdir(parents=True)
+        (raw_dir / "meta.json").write_text("{}", encoding="utf-8")
+
+    calls = {"ships": 0, "projectiles": 0}
+
+    def load_ships(_: Path) -> None:
+        calls["ships"] += 1
+        return None
+
+    def load_projectiles(_: Path) -> None:
+        calls["projectiles"] += 1
+        return None
+
+    monkeypatch.setattr(match_summary_module, "_load_ship_catalog", load_ships)
+    monkeypatch.setattr(match_summary_module, "_load_projectile_types", load_projectiles)
+    monkeypatch.setattr(
+        "wows_replay_analysis.process.match_summary.load_raw_match",
+        lambda _: make_raw(report=report_data()),
+    )
+
+    assert build_all_summaries(config, force=True) == 2
+    assert calls == {"ships": 1, "projectiles": 1}

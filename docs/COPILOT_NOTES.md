@@ -32,6 +32,22 @@ the entry to **Resolved**.
 
 ## Open
 
+### 2026-11-15 · Progress · 0e. One ship naming source
+Module: `process/match_summary.py`, `process/combat.py`
+
+Gamedata display names now take precedence for the player's ship, teams,
+timeline, kill events and damage hit list; readable internal names are the
+fallback. `build_all_summaries` loads the ship and projectile indexes once per
+run. `test_incomplete_teams_get_ship_details_from_gamedata` covers indexed
+names (`K-1`) and fallback (`Fallback ship`), and
+`test_build_all_summaries_loads_catalogs_once_per_run` checks the single load.
+Full suite: 120 passed. `wows-analysis process --force`: 4 database rows and
+4 summaries written, 0 skipped; every summary remains at processor version 3.
+Both K type summaries show `K-1`. The Libertad hit list names lifetec_jrr's
+attacking ship `Black B`. No fallback names remain: all 499 ship-name fields
+across the four summaries matched `ship_names.json`; summary sizes were
+29,178, 29,858, 45,287 and 42,366 bytes.
+
 ### 2026-11-15 · Task · 0e. One ship naming source (Claude → Copilot)
 Module: `process/match_summary.py`
 
