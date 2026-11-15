@@ -173,7 +173,12 @@ are in `process/combat.py`.
   patch for a key mismatch in wows-replay-parser
   (`extract/parser_patches.py`).
 - **Damage events have no weapon type.** The attacker is known; the weapon
-  is derived from shots, torpedoes and tick patterns where possible.
+  is derived from shots, torpedoes and tick patterns, then checked against
+  the game's per-weapon totals (complete replays). What can't be told stays
+  `"unknown"`; incomplete replays have more of those (whole salvos fired
+  from outside my view have no shot events).
+- **Ship names** come from the gamedata ship index ("K-1", "Black B");
+  the internal-name cleanup is only a fallback.
 - Every summary runs consistency checks (totals add up, no duplicate kills)
   and lists any problems in `match.data_warnings`.
 

@@ -95,6 +95,8 @@ real level of comments:
 - Timeline combat numbers come only from `process/combat.py`: never sum DamageEvents without adding
   killing blows, read deaths only through `deduplicate_deaths()`, and
   report distances in km (`world_to_km`; 1 world unit = 30 m).
+- Ship names: gamedata display name first, `readable_ship_name` only as
+  the fallback.
 - Never present a guess as data: unknown weapons are `"unknown"`, unknown
   consumables have a null name.
 - Replays can end early (player left after dying, or disconnected). Missing
