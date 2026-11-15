@@ -216,6 +216,7 @@ def make_raw(*, report: dict | None = None, timeline: dict | None = None) -> Raw
                 "dateTime": "13.11.2026 18:42:44",
                 "playerName": "Captain",
                 "mapName": "spaces/23_Shards",
+                    "matchGroup": "pvp",
             },
         },
         report,
@@ -516,7 +517,7 @@ def test_build_all_summaries_skips_current_and_force_rebuilds(
     (raw_dir / "meta.json").write_text("{}", encoding="utf-8")
     monkeypatch.setattr(
         "wows_replay_analysis.process.match_summary.load_raw_match",
-        lambda _: make_raw(report=report_data()),
+        lambda _, with_timeline=True: make_raw(report=report_data()),
     )
 
     assert build_all_summaries(config) == 1
@@ -549,8 +550,42 @@ def test_build_all_summaries_loads_catalogs_once_per_run(
     monkeypatch.setattr(match_summary_module, "_load_projectile_types", load_projectiles)
     monkeypatch.setattr(
         "wows_replay_analysis.process.match_summary.load_raw_match",
-        lambda _: make_raw(report=report_data()),
+        lambda _, with_timeline=True: make_raw(report=report_data()),
     )
 
     assert build_all_summaries(config, force=True) == 2
     assert calls == {"ships": 1, "projectiles": 1}
+
+
+def test_build_all_summaries_removes_excluded_json_and_png(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = Config(tmp_path, tmp_path / "data", tmp_path / "cache")
+    raw_dir = config.raw_dir / "ranked-match"
+    raw_dir.mkdir(parents=True)
+    (raw_dir / "meta.json").write_text("{}", encoding="utf-8")
+    config.matches_dir.mkdir(parents=True)
+    summary_path = config.matches_dir / "ranked-match.json"
+    minimap_path = config.matches_dir / "ranked-match.png"
+    summary_path.write_text("{}", encoding="utf-8")
+    minimap_path.write_bytes(b"old minimap")
+
+    loads: list[bool] = []
+    monkeypatch.setattr(match_summary_module, "_load_ship_catalog", lambda _: None)
+    monkeypatch.setattr(match_summary_module, "_load_projectile_types", lambda _: None)
+
+    def load(_: Path, with_timeline: bool = True) -> RawMatch:
+        loads.append(with_timeline)
+        return RawMatch("ranked-match", {"matchGroup": "ranked"}, {}, {})
+
+    monkeypatch.setattr(match_summary_module, "load_raw_match", load)
+    monkeypatch.setattr(
+        match_summary_module,
+        "_build_match_summary",
+        lambda *args: pytest.fail("excluded match should not be summarized"),
+    )
+
+    assert build_all_summaries(config, force=True) == 0
+    assert loads == [False]
+    assert not summary_path.exists()
+    assert not minimap_path.exists()

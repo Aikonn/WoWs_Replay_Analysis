@@ -13,6 +13,7 @@ from pathlib import Path
 from wows_replay_analysis.config import Config
 from wows_replay_analysis.process import PROCESSOR_VERSION
 from wows_replay_analysis.process.raw_loader import list_raw_matches, load_raw_match
+from wows_replay_analysis.process.selection import is_included
 from wows_replay_analysis.process.stats import match_stats_row
 
 logger = logging.getLogger(__name__)
@@ -124,6 +125,14 @@ def rebuild_database(config: Config, force: bool = False) -> int:
     try:
         for match_dir in list_raw_matches(config.raw_dir):
             try:
+                raw_meta = load_raw_match(match_dir, with_timeline=False)
+                if not is_included(raw_meta, config.match_groups):
+                    with connection:
+                        connection.execute(
+                            "DELETE FROM matches WHERE match_id = ?", (match_dir.name,)
+                        )
+                    continue
+
                 existing = connection.execute(
                     "SELECT processor_version FROM matches WHERE match_id = ?",
                     (match_dir.name,),

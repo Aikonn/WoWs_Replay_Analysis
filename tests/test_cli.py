@@ -74,7 +74,6 @@ def test_main_process_dispatches_and_reports_counts(
     assert capsys.readouterr().out.splitlines() == [
         "Database rows written: 3",
         "Summaries written: 2",
-        "Skipped by match filter: 0",
     ]
 
 

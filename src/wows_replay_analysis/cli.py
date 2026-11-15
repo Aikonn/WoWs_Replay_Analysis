@@ -193,13 +193,11 @@ def _run_extract(config: Config, force: bool) -> int:
 
 
 def _run_process(config: Config, force: bool) -> int:
-    """Run Stage 2 and print database, summary and current filter counts."""
+    """Run Stage 2 and print database and summary counts."""
     rows_written = database.rebuild_database(config, force=force)
     summaries_written = match_summary.build_all_summaries(config, force=force)
     print(f"Database rows written: {rows_written}")
     print(f"Summaries written: {summaries_written}")
-    # Stage 2 does not apply the match filter yet; that is the next task.
-    print("Skipped by match filter: 0")
     return 0
 
 

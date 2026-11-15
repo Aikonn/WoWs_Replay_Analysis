@@ -152,6 +152,7 @@ from wows_replay_analysis.process.public_results import (
 )
 from wows_replay_analysis.process.raw_loader import RawMatch
 from wows_replay_analysis.process.raw_loader import list_raw_matches, load_raw_match, own_entity_ids
+from wows_replay_analysis.process.selection import is_included
 from wows_replay_analysis.process.stats import match_stats_row
 
 logger = logging.getLogger(__name__)
@@ -672,9 +673,15 @@ def build_all_summaries(config: Config, force: bool = False) -> int:
     for match_dir in list_raw_matches(config.raw_dir):
         match_id = match_dir.name
         output_path = config.matches_dir / f"{match_id}.json"
-        if not force and not _summary_is_outdated(output_path):
-            continue
         try:
+            raw_meta = load_raw_match(match_dir, with_timeline=False)
+            if not is_included(raw_meta, config.match_groups):
+                output_path.unlink(missing_ok=True)
+                (config.matches_dir / f"{match_id}.png").unlink(missing_ok=True)
+                continue
+            if not force and not _summary_is_outdated(output_path):
+                continue
+
             raw = load_raw_match(match_dir)
             summary = _build_match_summary(raw, ship_catalog, projectile_types)
             write_match_summary(summary, config.matches_dir, match_id)

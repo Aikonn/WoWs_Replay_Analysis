@@ -32,6 +32,25 @@ the entry to **Resolved**.
 
 ## Open
 
+### 2026-11-15 · Progress · 2. Random-battles-only match filter
+Module: `config.py`, `process/selection.py`, `process/database.py`, `process/match_summary.py`
+
+Implemented normalized `[process] match_groups` config parsing and filtering
+from `meta.json["header"]["matchGroup"]`. `test_is_included_selects_configured_groups`
+and `test_missing_match_group_is_excluded_and_warned` cover selection;
+`test_load_config_resolves_paths_from_config_directory`,
+`test_load_config_normalizes_process_match_groups` and
+`test_load_config_rejects_invalid_process_match_groups` cover config parsing.
+`test_rebuild_database_deletes_excluded_rows_and_never_processes_them` and
+`test_build_all_summaries_removes_excluded_json_and_png` verify old excluded
+outputs are removed. The full suite passes (128 tests).
+
+On the real data, `process --force` wrote 4 database rows and 4 summaries.
+All four raw replays have `matchGroup` **`pvp`**; no other values were seen,
+and every output row/summary is `pvp`. `PROCESSOR_VERSION` remains 3.
+`config.example.toml` already documented `match_groups = ["pvp"]` and needed
+no change.
+
 ### 2026-11-14 · Task · 2. Random-battles-only match filter (Claude → Copilot)
 Module: `config.py`, `process/selection.py`, `process/database.py`, `process/match_summary.py`
 

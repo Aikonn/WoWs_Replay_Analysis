@@ -100,11 +100,27 @@ def load_config(path: Path) -> Config:
     if snapshot_interval <= 0:
         raise ValueError(f"extract.snapshot_interval must be positive in {config_path}")
 
+    process = values.get("process", {})
+    if not isinstance(process, dict):
+        raise ValueError(f"Invalid [process] section in {config_path}")
+    raw_match_groups = process.get("match_groups", ["pvp"])
+    if (
+        not isinstance(raw_match_groups, list)
+        or not raw_match_groups
+        or any(
+            not isinstance(group, str) or not group.strip()
+            for group in raw_match_groups
+        )
+    ):
+        raise ValueError(f"Invalid process.match_groups in {config_path}")
+    match_groups = tuple(group.strip().lower() for group in raw_match_groups)
+
     config = Config(
         replays_dir=replays_dir,
         data_dir=configured_path("data_dir"),
         gamedata_dir=configured_path("gamedata_dir"),
         snapshot_interval=float(snapshot_interval),
+        match_groups=match_groups,
     )
     logger.debug("Loaded configuration from %s", config_path)
     return config

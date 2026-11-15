@@ -8,6 +8,7 @@ import pytest
 from wows_replay_analysis.config import Config
 from wows_replay_analysis.process import PROCESSOR_VERSION
 from wows_replay_analysis.process import database
+from wows_replay_analysis.process.raw_loader import RawMatch
 
 
 def sample_row(match_id: str, processor_version: int = PROCESSOR_VERSION) -> dict:
@@ -135,11 +136,17 @@ def test_rebuild_database_skips_current_rows_and_rebuilds_when_forced(
 
     loaded: list[str] = []
     monkeypatch.setattr(database, "list_raw_matches", lambda _: raw_dirs)
-    monkeypatch.setattr(database, "load_raw_match", lambda path: loaded.append(path.name) or path)
+
+    def load(path: Path, with_timeline: bool = True) -> RawMatch:
+        if with_timeline:
+            loaded.append(path.name)
+        return RawMatch(path.name, {"matchGroup": "pvp"}, {}, {})
+
+    monkeypatch.setattr(database, "load_raw_match", load)
     monkeypatch.setattr(
         database,
         "match_stats_row",
-        lambda raw: sample_row(raw.name, processor_version=PROCESSOR_VERSION),
+        lambda raw: sample_row(raw.match_id, processor_version=PROCESSOR_VERSION),
     )
 
     assert database.rebuild_database(config) == 1
@@ -148,6 +155,47 @@ def test_rebuild_database_skips_current_rows_and_rebuilds_when_forced(
     loaded.clear()
     assert database.rebuild_database(config, force=True) == 2
     assert loaded == ["current", "new"]
+
+
+def test_rebuild_database_deletes_excluded_rows_and_never_processes_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = Config(tmp_path, tmp_path / "data", tmp_path / "cache")
+    raw_dirs = [config.raw_dir / "random", config.raw_dir / "ranked"]
+    for path in raw_dirs:
+        path.mkdir(parents=True)
+
+    connection = database.connect(config.database_path)
+    try:
+        database.upsert_match(connection, sample_row("random"))
+        database.upsert_match(connection, sample_row("ranked"))
+        connection.commit()
+    finally:
+        connection.close()
+
+    full_loads: list[str] = []
+    monkeypatch.setattr(database, "list_raw_matches", lambda _: raw_dirs)
+
+    def load(path: Path, with_timeline: bool = True) -> RawMatch:
+        if with_timeline:
+            full_loads.append(path.name)
+        group = "ranked" if path.name == "ranked" else "pvp"
+        return RawMatch(path.name, {"matchGroup": group}, {}, {})
+
+    monkeypatch.setattr(database, "load_raw_match", load)
+    monkeypatch.setattr(
+        database, "match_stats_row", lambda raw: sample_row(raw.match_id)
+    )
+
+    assert database.rebuild_database(config, force=True) == 1
+    assert full_loads == ["random"]
+    connection = sqlite3.connect(config.database_path)
+    try:
+        assert connection.execute(
+            "SELECT match_id FROM matches ORDER BY match_id"
+        ).fetchall() == [("random",)]
+    finally:
+        connection.close()
 
 
 def test_rebuild_database_continues_after_bad_raw_match(
@@ -159,13 +207,13 @@ def test_rebuild_database_continues_after_bad_raw_match(
         path.mkdir(parents=True)
     monkeypatch.setattr(database, "list_raw_matches", lambda _: raw_dirs)
 
-    def load(path: Path) -> Path:
+    def load(path: Path, with_timeline: bool = True) -> RawMatch:
         if path.name == "bad":
             raise ValueError("invalid extract")
-        return path
+        return RawMatch(path.name, {"matchGroup": "pvp"}, {}, {})
 
     monkeypatch.setattr(database, "load_raw_match", load)
-    monkeypatch.setattr(database, "match_stats_row", lambda raw: sample_row(raw.name))
+    monkeypatch.setattr(database, "match_stats_row", lambda raw: sample_row(raw.match_id))
 
     assert database.rebuild_database(config) == 1
     connection = sqlite3.connect(config.database_path)
