@@ -300,6 +300,11 @@ def build_match_summary(raw: RawMatch, gamedata_dir: Path | None = None) -> dict
         if public_rows is not None and own_name in public_rows
         else _section_data(hidden, "details", "damage_received")
     )
+    own_received_report = (
+        damage_received_by_type
+        if public_rows is not None and own_name in public_rows
+        else None
+    )
     ribbons = _section_data(hidden, "personal_score", "ribbons")
     ribbon_counts: dict[str, int] = {}
     if isinstance(ribbons, list):
@@ -435,6 +440,7 @@ def build_match_summary(raw: RawMatch, gamedata_dir: Path | None = None) -> dict
                     combat_players_by_id,
                     own_death_info,
                     projectile_types,
+                    own_received_report,
                 )
                 if own_ship_id is not None
                 else []

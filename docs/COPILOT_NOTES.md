@@ -32,6 +32,35 @@ the entry to **Resolved**.
 
 ## Open
 
+### 2026-11-15 · Progress · 0d-fix. Hit classification: OC_prey errors, report check
+Module: `process/combat.py`, `process/match_summary.py`, `tests/test_combat.py`
+
+Implemented conservative periodic-hit classification, depth-charge-following
+flood detection, exact public-results reconciliation, and removal of
+zero-damage hit entries. The focused tests cover two equal hits 2.3 s apart,
+flood ticks after a depth charge, unreported weapons becoming unknown, and
+shortfall fill; the full suite passes (119 tests). `process --force` wrote 4
+rows and 4 summaries.
+
+- Shards hit sums vs report: main HE 4192.6 / 4193; secondary HE 1590.5 /
+  1590; torpedoes 3333.8 / 3334; depth charges 5781.4 / 5781; fire 3610 /
+  3610; flood 1489.2 / 1490. Castle3's 59.6 hit is now flood. All differences
+  are within the documented per-hit tolerance.
+- OC_prey: depth charges 3570.0 / 3570 and flood 232.8 / 233.
+- No zero-damage hit entries in any of the four summaries. Sizes: Libertad
+  28821 B, Sleeping Giant 29328 B, Shards 45429 B, OC_prey 42420 B; all
+  below 50 KB.
+- Libertad unknown share: 92.15% (94748.9 / 102823.6). All 9 unknown hit
+  entries lack a matching shot-impact/projectile pair; 8 have tied nearest
+  AGRO weapon updates. The largest two are 55200 and 23625 damage, consistent
+  with shell hits whose projectile events are absent (including shells fired
+  outside the client's view); without a unique weapon signal they remain
+  unknown.
+- Sleeping Giant unknown share: 30.75% (5549.4 / 18048.0). All 5 unknown
+  entries are from Halcon; none has a matching shot-impact/projectile pair,
+  and every nearest AGRO update ties across weapon categories, so they remain
+  unknown.
+
 ### 2026-11-15 · Task · 0d-fix. Hit classification: OC_prey errors, report check (Claude → Copilot)
 Module: `process/combat.py`, `process/match_summary.py`
 

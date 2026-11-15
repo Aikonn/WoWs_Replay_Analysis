@@ -532,6 +532,7 @@ def damage_received_events(
     players_by_id: dict[int, dict],
     death_info: dict | None = None,
     projectile_types: dict[int, str] | None = None,
+    by_type: dict | None = None,
 ) -> list[dict]:
     """Return who hit me, when and how hard, compact enough for the summary.
 
@@ -543,9 +544,10 @@ def damage_received_events(
     Entry: {"start_s", "end_s", "attacker": {"player", "ship"},
     "weapon", "hits", "damage"}; end_s only when hits > 1. Leave out
     entries with 0 damage. Run the list through reconcile_with_report()
-    last. projectile_types: {GameParams id: "HE"/"AP"/"CS"} built from
-    gamedata projectiles.json (accepted proposal, 0d review); optional, so
-    the function still works without gamedata.
+    last, using exact public-results damage_received_by_type when available.
+    projectile_types: {GameParams id: "HE"/"AP"/"CS"} built from gamedata
+    projectiles.json (accepted proposal, 0d review); optional, so the function
+    still works without gamedata.
 
     weapon: one of "main_he", "main_ap", "secondary_he", "secondary_ap",
     "torpedo", "depth_charge_airstrike", "bomb_airstrike", "fire", "flood",
@@ -595,7 +597,7 @@ def damage_received_events(
         if (
             first_time is None
             or last_time is None
-            or any(amount is None for amount in amounts)
+            or any(amount is None or amount <= 0 for amount in amounts)
         ):
             continue
         attacker_id = _integer_id(first.get("attacker_id"))
@@ -616,7 +618,8 @@ def damage_received_events(
         if blow["victim_id"] != ship_id:
             continue
         death_time = _number(blow.get("time_s"))
-        if death_time is None:
+        blow_damage = _number(blow.get("damage"))
+        if death_time is None or blow_damage is None or blow_damage <= 0:
             continue
         killer_id = _integer_id(blow.get("killer_id"))
         received.append({
@@ -626,11 +629,11 @@ def damage_received_events(
             ),
             "weapon": _death_info_weapon(death_info),
             "hits": 1,
-            "damage": _number(blow.get("damage")) or 0.0,
+            "damage": round(blow_damage, 1),
         })
 
     received.sort(key=lambda event: event["start_s"])
-    return received
+    return reconcile_with_report(received, by_type)
 
 
 def classify_hit(
@@ -644,9 +647,9 @@ def classify_hit(
     Use matching torpedo/projectile events and the closest per-weapon damage
     stat update. A projectile's ammo type comes from the optional
     GAMEPARAMS_ID lookup; gun class comes from its fire event or damage stat.
-    Repeated periodic damage is fire only while burning is recorded, or flood
-    when it follows the same attacker's torpedo hit. A one-off tick-sized
-    amount without those signals is not enough evidence.
+    A periodic run requires at least three small hits spaced 0.9-1.4 seconds
+    apart. It is fire only while burning is recorded, or flood when it follows
+    the same attacker's torpedo or depth-charge hit.
 
     Corrections from the 0d review (2026-11-15), OC_prey: two 1,785 hits from
     the same attacker 2.3 s apart (an ASW airstrike, report
@@ -671,19 +674,30 @@ def classify_hit(
     if attacker_id is None or target_id is None or timestamp is None:
         return "unknown"
 
-    if _periodic_damage_run(events, event, run_length):
+    max_health = _timeline_max_health(timeline, target_id)
+    if _periodic_damage_run(events, event, run_length, max_health):
         if _follows_torpedo_hit(events, target_id, attacker_id, timestamp):
+            return "flood"
+        if _follows_depth_charge_hit(events, target_id, attacker_id, timestamp):
             return "flood"
         if _burning_at(events, target_id, timestamp):
             return "fire"
         return "unknown"
-    if _amount_has_periodic_run(events, event):
+    if _amount_has_periodic_run(events, event, max_health):
         return "unknown"
 
     stat_weapon = _damage_stat_weapon(events, target_id, timestamp)
     projectile_weapon = _projectile_weapon(
         events, attacker_id, timestamp, projectile_types or {}
     )
+    damage = _number(event.get("damage"))
+    if (
+        max_health is not None
+        and damage is not None
+        and damage <= max_health * 0.015
+        and projectile_weapon is None
+    ):
+        return "unknown"
     if projectile_weapon == "torpedo":
         return "torpedo"
     if stat_weapon is not None:
@@ -809,8 +823,19 @@ def _projectile_weapon(
     return next(iter(candidates)) if len(candidates) == 1 else None
 
 
-def _periodic_damage_run(events: list[dict], event: dict, run_length: int) -> bool:
-    if isinstance(run_length, bool) or not isinstance(run_length, int) or run_length < 2:
+def _periodic_damage_run(
+    events: list[dict],
+    event: dict,
+    run_length: int,
+    max_health: float | None,
+) -> bool:
+    if (
+        isinstance(run_length, bool)
+        or not isinstance(run_length, int)
+        or run_length < 3
+        or max_health is None
+        or max_health <= 0
+    ):
         return False
     attacker_id = _integer_id(event.get("attacker_id"))
     target_id = _integer_id(event.get("target_id"))
@@ -818,61 +843,101 @@ def _periodic_damage_run(events: list[dict], event: dict, run_length: int) -> bo
     timestamp = _number(event.get("timestamp"))
     if attacker_id is None or target_id is None or damage is None or timestamp is None:
         return False
+    if damage > max_health * 0.015:
+        return False
     matching = sorted(
-        (
-            item for item in events
-            if isinstance(item, dict)
-            and item.get("event_type") == "DamageEvent"
-            and _integer_id(item.get("attacker_id")) == attacker_id
-            and _integer_id(item.get("target_id")) == target_id
-            and (amount := _number(item.get("damage"))) is not None
-            and round(amount, 1) == round(damage, 1)
-            and (time_s := _number(item.get("timestamp"))) is not None
-            and abs(time_s - timestamp) <= 2.5 * run_length
-        ),
-        key=lambda item: _number(item.get("timestamp")) or 0.0,
+        time_s
+        for item in events
+        if isinstance(item, dict)
+        and item.get("event_type") == "DamageEvent"
+        and _integer_id(item.get("attacker_id")) == attacker_id
+        and _integer_id(item.get("target_id")) == target_id
+        and (amount := _number(item.get("damage"))) is not None
+        and amount <= max_health * 0.015
+        and round(amount, 1) == round(damage, 1)
+        and (time_s := _number(item.get("timestamp"))) is not None
     )
     group: list[float] = []
-    for item in matching:
-        time_s = _number(item.get("timestamp"))
-        if time_s is None:
-            continue
-        if group and not 0.45 <= time_s - group[-1] < 2.5:
-            if len(group) >= run_length and any(time == timestamp for time in group):
+    for time_s in matching:
+        if group and time_s - group[-1] >= 2.5:
+            if (
+                len(group) >= run_length
+                and any(abs(time - timestamp) <= 0.01 for time in group)
+                and _contains_periodic_sequence(group, None)
+            ):
                 return True
             group = []
         group.append(time_s)
-    return len(group) >= run_length and any(time == timestamp for time in group)
+    return (
+        len(group) >= run_length
+        and any(abs(time - timestamp) <= 0.01 for time in group)
+        and _contains_periodic_sequence(group, None)
+    )
 
 
-def _amount_has_periodic_run(events: list[dict], event: dict) -> bool:
+def _amount_has_periodic_run(
+    events: list[dict], event: dict, max_health: float | None
+) -> bool:
     target_id = _integer_id(event.get("target_id"))
     damage = _number(event.get("damage"))
-    if target_id is None or damage is None:
+    timestamp = _number(event.get("timestamp"))
+    if (
+        target_id is None
+        or damage is None
+        or timestamp is None
+        or max_health is None
+        or max_health <= 0
+        or damage > max_health * 0.015
+    ):
         return False
-    matching = sorted(
-        (
-            item for item in events
-            if isinstance(item, dict)
-            and item.get("event_type") == "DamageEvent"
-            and _integer_id(item.get("target_id")) == target_id
-            and (amount := _number(item.get("damage"))) is not None
-            and round(amount, 1) == round(damage, 1)
-            and _number(item.get("timestamp")) is not None
-        ),
-        key=lambda item: _number(item.get("timestamp")) or 0.0,
-    )
-    run = 1
-    for previous, current in zip(matching, matching[1:]):
-        previous_time = _number(previous.get("timestamp"))
-        current_time = _number(current.get("timestamp"))
-        if previous_time is None or current_time is None:
-            run = 1
-            continue
-        run = run + 1 if 0.45 <= current_time - previous_time < 2.5 else 1
-        if run >= 3:
-            return True
+    matching = [
+        time_s
+        for item in events
+        if isinstance(item, dict)
+        and item.get("event_type") == "DamageEvent"
+        and _integer_id(item.get("target_id")) == target_id
+        and (amount := _number(item.get("damage"))) is not None
+        and amount <= max_health * 0.015
+        and round(amount, 1) == round(damage, 1)
+        and (time_s := _number(item.get("timestamp"))) is not None
+    ]
+    return _contains_periodic_sequence(matching, timestamp)
+
+
+def _contains_periodic_sequence(
+    times: list[float], timestamp: float | None
+) -> bool:
+    """Return whether a hit belongs to three small ticks spaced 0.9-1.4 s."""
+    ordered = sorted(times)
+    for start_index, start_time in enumerate(ordered):
+        sequence = [start_time]
+        # Same-amount damage messages can interleave within a periodic cadence.
+        for time_s in ordered[start_index + 1:]:
+            gap = time_s - sequence[-1]
+            if gap < 0.9:
+                continue
+            if gap > 1.4:
+                break
+            sequence.append(time_s)
+            if len(sequence) >= 3 and (
+                timestamp is None
+                or any(abs(time - timestamp) <= 0.01 for time in sequence)
+            ):
+                return True
     return False
+
+
+def _timeline_max_health(timeline: dict, ship_id: int) -> float | None:
+    players = timeline.get("players")
+    if not isinstance(players, list):
+        return None
+    for player in players:
+        if (
+            isinstance(player, dict)
+            and _integer_id(player.get("entity_id")) == ship_id
+        ):
+            return _number(player.get("max_health"))
+    return None
 
 
 def _follows_torpedo_hit(
@@ -910,6 +975,33 @@ def _follows_torpedo_hit(
         ):
             return True
     return False
+
+
+def _follows_depth_charge_hit(
+    events: list[dict], target_id: int, attacker_id: int, timestamp: float
+) -> bool:
+    depth_charge_stats = [
+        stat_time
+        for item in events
+        if isinstance(item, dict)
+        and item.get("event_type") == "DamageReceivedStatEvent"
+        and _integer_id(item.get("entity_id")) == target_id
+        and item.get("stat_type") == "AGRO"
+        and _DAMAGE_STAT_WEAPONS.get(item.get("damage_param"))
+        == "depth_charge_airstrike"
+        and (stat_time := _number(item.get("timestamp"))) is not None
+        and 0 <= timestamp - stat_time <= 10
+    ]
+    return any(
+        isinstance(damage, dict)
+        and damage.get("event_type") == "DamageEvent"
+        and _integer_id(damage.get("attacker_id")) == attacker_id
+        and _integer_id(damage.get("target_id")) == target_id
+        and (damage_time := _number(damage.get("timestamp"))) is not None
+        and abs(damage_time - stat_time) <= 2.1
+        for stat_time in depth_charge_stats
+        for damage in events
+    )
 
 
 def _burning_at(events: list[dict], ship_id: int, timestamp: float) -> bool:
@@ -980,7 +1072,117 @@ def reconcile_with_report(entries: list[dict], by_type: dict | None) -> list[dic
     OC_prey: the 3570.0 entry becomes depth_charge_airstrike and the 232.8
     entry flood.
     """
-    raise NotImplementedError
+    if by_type is None:
+        return entries
+
+    categories = {
+        "main_he": ("main_he", "main_cs"),
+        "main_ap": ("main_ap",),
+        "secondary_he": ("atba_he",),
+        "secondary_ap": ("atba_ap",),
+        "torpedo": tuple(
+            key for key in by_type if isinstance(key, str) and key.startswith("tpd_")
+        ),
+        "depth_charge_airstrike": ("dbomb_airsupport",),
+        "bomb_airstrike": ("bomb_airsupport",),
+        "fire": ("fire",),
+        "flood": ("flood",),
+        "ram": ("ram",),
+    }
+
+    def report_amount(weapon: str) -> float:
+        return sum(
+            amount
+            for key in categories[weapon]
+            if (amount := _number(by_type.get(key))) is not None
+        )
+
+    def entry_damage(entry: dict) -> float:
+        return _number(entry.get("damage")) or 0.0
+
+    def entry_hits(entry: dict) -> float:
+        return max(1.0, _number(entry.get("hits")) or 1.0)
+
+    result = [dict(entry) for entry in entries]
+    for entry in result:
+        weapon = entry.get("weapon")
+        if weapon in categories and report_amount(weapon) <= 0:
+            entry["weapon"] = "unknown"
+
+    for weapon in categories:
+        classified = [
+            entry for entry in result if entry.get("weapon") == weapon
+        ]
+        if not classified:
+            continue
+        amount = sum(entry_damage(entry) for entry in classified)
+        tolerance = 1 + 0.5 * sum(entry_hits(entry) for entry in classified)
+        if amount > report_amount(weapon) + tolerance:
+            for entry in classified:
+                entry["weapon"] = "unknown"
+
+    while True:
+        unknown = [
+            (index, entry)
+            for index, entry in enumerate(result)
+            if entry.get("weapon") == "unknown"
+        ]
+        groups: dict[tuple[int, ...], list[dict]] = {
+            (index,): [entry] for index, entry in unknown
+        }
+        by_attacker: dict[tuple[object, object], list[int]] = {}
+        for index, entry in unknown:
+            attacker = entry.get("attacker")
+            if not isinstance(attacker, dict):
+                continue
+            identity = (attacker.get("player"), attacker.get("ship"))
+            if any(value is not None for value in identity):
+                by_attacker.setdefault(identity, []).append(index)
+        for indexes in by_attacker.values():
+            groups[tuple(indexes)] = [result[index] for index in indexes]
+
+        candidates: dict[str, set[tuple[int, ...]]] = {}
+        for weapon in categories:
+            shortfall = report_amount(weapon) - sum(
+                entry_damage(entry)
+                for entry in result
+                if entry.get("weapon") == weapon
+            )
+            if shortfall <= 0:
+                continue
+            for indexes, group in groups.items():
+                group_damage = sum(entry_damage(entry) for entry in group)
+                tolerance = 1 + 0.5 * sum(entry_hits(entry) for entry in group)
+                if abs(group_damage - shortfall) <= tolerance:
+                    candidates.setdefault(weapon, set()).add(indexes)
+
+        group_categories: dict[tuple[int, ...], set[str]] = {}
+        for weapon, matching_groups in candidates.items():
+            for indexes in matching_groups:
+                group_categories.setdefault(indexes, set()).add(weapon)
+
+        assignments = [
+            (weapon, next(iter(matching_groups)))
+            for weapon, matching_groups in candidates.items()
+            if len(matching_groups) == 1
+            and len(group_categories[next(iter(matching_groups))]) == 1
+        ]
+        unambiguous: list[tuple[str, tuple[int, ...]]] = []
+        for assignment in assignments:
+            indexes = set(assignment[1])
+            if not any(
+                indexes.intersection(other_indexes)
+                for other_weapon, other_indexes in assignments
+                if (other_weapon, other_indexes) != assignment
+            ):
+                unambiguous.append(assignment)
+        if not unambiguous:
+            break
+        for weapon, indexes in unambiguous:
+            for index in indexes:
+                result[index]["weapon"] = weapon
+
+    return result
 
 
 def check_damage_consistency(summary: dict) -> list[str]:

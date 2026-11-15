@@ -11,6 +11,7 @@ from wows_replay_analysis.process.combat import (
     healing_received,
     health_track,
     killing_blows,
+    reconcile_with_report,
     world_to_km,
 )
 
@@ -217,7 +218,7 @@ def test_damage_received_events_merge_ticks_and_include_salvo_and_report_kill() 
             "start_s": 10.0,
             "end_s": 11.1,
             "attacker": {"player": "Enemy", "ship": "K type"},
-            "weapon": "fire",
+            "weapon": "unknown",
             "hits": 2,
             "damage": 20.0,
         },
@@ -248,6 +249,96 @@ def test_damage_received_events_leave_unmatched_weapon_unknown() -> None:
     received = damage_received_events(timeline, 1, {})
 
     assert received[0]["weapon"] == "unknown"
+
+
+def test_two_equal_hits_2_3_seconds_apart_are_not_a_periodic_run() -> None:
+    timeline = {
+        "players": [{"entity_id": 1, "max_health": 1000}],
+        "events": [
+            {"event_type": "PropertyUpdateEvent", "entity_id": 1, "property_name": "burningFlags", "value": 1, "timestamp": 9},
+            {"event_type": "DamageReceivedStatEvent", "entity_id": 1, "damage_param": "MAIN_HE", "stat_type": "AGRO", "timestamp": 10},
+            {"event_type": "DamageEvent", "attacker_id": 2, "target_id": 1, "damage": 20, "timestamp": 10},
+            {"event_type": "DamageEvent", "attacker_id": 2, "target_id": 1, "damage": 20, "timestamp": 12.3},
+        ],
+    }
+
+    received = damage_received_events(timeline, 1, {})
+
+    assert received == [{
+        "start_s": 10.0,
+        "end_s": 12.3,
+        "attacker": {"player": None, "ship": None},
+        "weapon": "main_he",
+        "hits": 2,
+        "damage": 40.0,
+    }]
+
+
+def test_periodic_ticks_after_a_depth_charge_are_flood_even_while_burning() -> None:
+    timeline = {
+        "players": [{"entity_id": 1, "max_health": 1000}],
+        "events": [
+            {"event_type": "PropertyUpdateEvent", "entity_id": 1, "property_name": "burningFlags", "value": 1, "timestamp": 8.8},
+            {"event_type": "DamageReceivedStatEvent", "entity_id": 1, "damage_param": "DEPTH_CHARGE_ASUP", "stat_type": "AGRO", "timestamp": 8.5},
+            {"event_type": "DamageEvent", "attacker_id": 2, "target_id": 1, "damage": 300, "timestamp": 8.5},
+            {"event_type": "DamageEvent", "attacker_id": 2, "target_id": 1, "damage": 10, "timestamp": 9.0},
+            {"event_type": "DamageEvent", "attacker_id": 2, "target_id": 1, "damage": 10, "timestamp": 9.575},
+            {"event_type": "DamageEvent", "attacker_id": 2, "target_id": 1, "damage": 10, "timestamp": 10.138},
+            {"event_type": "DamageEvent", "attacker_id": 2, "target_id": 1, "damage": 10, "timestamp": 10.713},
+            {"event_type": "DamageEvent", "attacker_id": 2, "target_id": 1, "damage": 10, "timestamp": 11.276},
+            {"event_type": "DamageEvent", "attacker_id": 2, "target_id": 1, "damage": 10, "timestamp": 11.851},
+        ],
+    }
+
+    received = damage_received_events(timeline, 1, {})
+
+    assert received[-1]["weapon"] == "flood"
+    assert received[-1]["hits"] == 6
+    assert received[-1]["damage"] == 60.0
+
+
+def test_reconcile_with_report_marks_unreported_weapon_unknown() -> None:
+    entries = [{
+        "attacker": {"player": "Enemy", "ship": "Ship"},
+        "weapon": "main_he",
+        "hits": 1,
+        "damage": 30.0,
+    }]
+
+    reconciled = reconcile_with_report(entries, {"total": 30})
+
+    assert reconciled[0]["weapon"] == "unknown"
+
+
+def test_reconcile_with_report_fills_single_unknown_entry_with_report_shortfall() -> None:
+    entries = [
+        {
+            "attacker": {"player": "Enemy", "ship": "Ship"},
+            "weapon": "flood",
+            "hits": 24,
+            "damage": 1429.6,
+        },
+        {
+            "attacker": {"player": "Other", "ship": "Ship"},
+            "weapon": "unknown",
+            "hits": 1,
+            "damage": 59.6,
+        },
+    ]
+
+    reconciled = reconcile_with_report(entries, {"total": 1490, "flood": 1490})
+
+    assert [entry["weapon"] for entry in reconciled] == ["flood", "flood"]
+
+
+def test_damage_received_events_drop_zero_damage_entries() -> None:
+    timeline = {
+        "events": [
+            {"event_type": "DamageEvent", "attacker_id": 2, "target_id": 1, "damage": 0, "timestamp": 5},
+        ]
+    }
+
+    assert damage_received_events(timeline, 1, {}) == []
 
 
 def test_damage_windows_include_death_and_stop_at_its_time() -> None:
