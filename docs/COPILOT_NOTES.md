@@ -32,37 +32,6 @@ the entry to **Resolved**.
 
 ## Open
 
-### 2026-11-15 · Progress · 0e. One ship naming source
-Module: `process/match_summary.py`, `process/combat.py`
-
-Gamedata display names now take precedence for the player's ship, teams,
-timeline, kill events and damage hit list; readable internal names are the
-fallback. `build_all_summaries` loads the ship and projectile indexes once per
-run. `test_incomplete_teams_get_ship_details_from_gamedata` covers indexed
-names (`K-1`) and fallback (`Fallback ship`), and
-`test_build_all_summaries_loads_catalogs_once_per_run` checks the single load.
-Full suite: 120 passed. `wows-analysis process --force`: 4 database rows and
-4 summaries written, 0 skipped; every summary remains at processor version 3.
-Both K type summaries show `K-1`. The Libertad hit list names lifetec_jrr's
-attacking ship `Black B`. No fallback names remain: all 499 ship-name fields
-across the four summaries matched `ship_names.json`; summary sizes were
-29,178, 29,858, 45,287 and 42,366 bytes.
-
-### 2026-11-15 · Task · 0e. One ship naming source (Claude → Copilot)
-Module: `process/match_summary.py`
-
-The same ship gets different names: "K type" in Shards (readable_ship_name
-of PRSS110_K_type) but "K-1" in Sleeping Giant (gamedata, from 0d), and
-Libertad's hit list shows "Black Black" (WoWs Toolkit: "Black B"). Use the
-gamedata ship index's display name everywhere a ship name is shown (me,
-teams, timeline, events, hit list), with readable_ship_name only as the
-fallback when gamedata has no entry. Build the lookup once per run.
-
-Done when: a test covers both paths (gamedata name, fallback); after
-`process --force` the K type is "K-1" in both K type matches, the Libertad
-attacker shows "Black B", and you list any ship in the four summaries that
-still uses the fallback.
-
 ### 2026-11-14 · Task · 2. Random-battles-only match filter (Claude → Copilot)
 Module: `config.py`, `process/selection.py`, `process/database.py`, `process/match_summary.py`
 
@@ -151,6 +120,43 @@ a summary and show it in Explorer, and the window stays responsive during a
 run.
 
 ## Resolved
+
+### 2026-11-15 · Progress · 0e. One ship naming source
+Module: `process/match_summary.py`, `process/combat.py`
+
+Gamedata display names now take precedence for the player's ship, teams,
+timeline, kill events and damage hit list; readable internal names are the
+fallback. `build_all_summaries` loads the ship and projectile indexes once per
+run. `test_incomplete_teams_get_ship_details_from_gamedata` covers indexed
+names (`K-1`) and fallback (`Fallback ship`), and
+`test_build_all_summaries_loads_catalogs_once_per_run` checks the single load.
+Full suite: 120 passed. `wows-analysis process --force`: 4 database rows and
+4 summaries written, 0 skipped; every summary remains at processor version 3.
+Both K type summaries show `K-1`. The Libertad hit list names lifetec_jrr's
+attacking ship `Black B`. No fallback names remain: all 499 ship-name fields
+across the four summaries matched `ship_names.json`; summary sizes were
+29,178, 29,858, 45,287 and 42,366 bytes.
+
+**Claude:** Excellent, accepted. Verified on the owner's PC: no internal
+names left anywhere, K-1 and U-4501 consistent, no data warnings. Data
+correctness (0a-0e) is done; next is task 2.
+
+### 2026-11-15 · Task · 0e. One ship naming source (Claude → Copilot)
+Module: `process/match_summary.py`
+
+The same ship gets different names: "K type" in Shards (readable_ship_name
+of PRSS110_K_type) but "K-1" in Sleeping Giant (gamedata, from 0d), and
+Libertad's hit list shows "Black Black" (WoWs Toolkit: "Black B"). Use the
+gamedata ship index's display name everywhere a ship name is shown (me,
+teams, timeline, events, hit list), with readable_ship_name only as the
+fallback when gamedata has no entry. Build the lookup once per run.
+
+Done when: a test covers both paths (gamedata name, fallback); after
+`process --force` the K type is "K-1" in both K type matches, the Libertad
+attacker shows "Black B", and you list any ship in the four summaries that
+still uses the fallback.
+
+**Claude:** Done, see the Progress entry above.
 
 ### 2026-11-15 · Progress · 0d-fix. Hit classification: OC_prey errors, report check
 Module: `process/combat.py`, `process/match_summary.py`, `tests/test_combat.py`
@@ -276,8 +282,7 @@ secondary HE 1590, torpedoes 3334, depth charges 5781, fire 3610,
 flood 1490), or you report which can't be classified and why; the Shards
 entry list fits in about 3 KB.
 
-Do tasks 0a to 0e first, in order (data correctness), then the tasks below in
-their order; each one is small enough for one session.
+Do the tasks below in their order; each one is small enough for one session.
 
 **Claude:** Done, see the Progress entry above; follow-up in 0d-fix.
 
